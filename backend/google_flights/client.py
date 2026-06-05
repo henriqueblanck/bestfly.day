@@ -63,7 +63,7 @@ class GoogleFlightsClient:
                     )
                 ],
             )
-            results = searcher.search(filters, top_n=10, currency="USD")
+            results = searcher.search(filters, top_n=10, currency="BRL")
             if not results:
                 return []
 
@@ -80,7 +80,7 @@ class GoogleFlightsClient:
                         destination=destination,
                         departure_date=departure_date,
                         price=Decimal(str(r.price)),
-                        currency=r.currency or "USD",
+                        currency=r.currency or "BRL",
                         offer_id=f"{origin}-{destination}-{departure_date}-{i}",
                         duration_minutes=r.duration or 0,
                         connections=r.stops or 0,

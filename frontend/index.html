@@ -7,39 +7,69 @@
     <meta name="description" content="Split-ticket price intelligence. Find flight loopholes the airlines don't want you to know about." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <style>
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
       :root {
-        --bg: #080812;
-        --bg-card: #0d0d1f;
-        --bg-elevated: #111128;
-        --border: #1a1a3a;
-        --border-bright: #2a2a5a;
-        --green: #00FF88;
-        --green-dim: #00cc6a;
-        --green-bg: rgba(0,255,136,0.06);
-        --red: #ff4466;
-        --red-bg: rgba(255,68,102,0.08);
-        --yellow: #ffd24d;
-        --text: #e8e8f0;
-        --muted: #55557a;
-        --muted2: #888899;
+        /* Surfaces */
+        --bg:        #08080F;
+        --bg-2:      #0B0B16;
+        --surface:   #12121F;
+        --surface-2: #181826;
+        --line:      rgba(255,255,255,0.07);
+        --line-2:    rgba(255,255,255,0.12);
+        /* Text */
+        --ink:   #ECECF5;
+        --ink-2: #9A9AB0;
+        --ink-3: #5C5C72;
+        /* Accents */
+        --green:       #00FF88;
+        --green-dim:   #00cc6e;
+        --green-glow:  rgba(0,255,136,0.22);
+        --crimson:     #FF4D63;
+        --crimson-dim: #b3324a;
+        --amber:       #FFC83D;
+        --on-accent:   #04150c;
+        /* Heat ramp */
+        --heat-0: #00FF88;
+        --heat-1: #7CF06B;
+        --heat-2: #D6E84F;
+        --heat-3: #FFC83D;
+        --heat-4: #FF8A4D;
+        --heat-5: #FF4D63;
+        /* Type */
         --font: 'Space Grotesk', system-ui, sans-serif;
-        --mono: 'Space Mono', monospace;
+        --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', monospace;
+        /* Radius */
+        --r-sm:   8px;
+        --r-md:   12px;
+        --r-lg:   18px;
+        --r-pill: 999px;
+        /* Legacy aliases */
+        --bg-card:       var(--surface);
+        --bg-elevated:   var(--surface-2);
+        --border:        var(--line);
+        --border-bright: var(--line-2);
+        --text:          var(--ink);
+        --muted:         var(--ink-3);
+        --muted2:        var(--ink-2);
       }
       html { scroll-behavior: smooth; }
       body {
         background: var(--bg);
-        color: var(--text);
+        color: var(--ink);
         font-family: var(--font);
         -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
         overflow-x: hidden;
       }
-      ::-webkit-scrollbar { width: 4px; }
-      ::-webkit-scrollbar-track { background: var(--bg); }
-      ::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
-      ::selection { background: rgba(0,255,136,0.2); }
+      .mono { font-family: var(--mono); }
+      .tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+      ::-webkit-scrollbar { width: 10px; height: 10px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); background-clip: padding-box; }
+      ::selection { background: var(--green); color: var(--on-accent); }
     </style>
   </head>
   <body>
