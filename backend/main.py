@@ -2,48 +2,22 @@
 import uuid
 import asyncio
 import logging
-from contextlib import asynccontextmanager
 from datetime import date
 from decimal import Decimal
 from typing import Any
 
-import httpx
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 
 from config import settings
-from engine.split_ticketing import SearchRequest, SplitTicketingEngine, PriceMatrix
+from engine.split_ticketing import SearchRequest, SplitTicketingEngine
 
 log = logging.getLogger(__name__)
 
-# ------------------------------------------------------------------ #
-# In-memory job store (swap for Redis in prod)                        #
-# ------------------------------------------------------------------ #
-
 jobs: dict[str, dict[str, Any]] = {}
 
-# Shared HTTP client (connection pool)
-http_client: httpx.AsyncClient | None = None
-
-
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    global http_client
-    http_client = httpx.AsyncClient(
-        headers={
-            "Authorization": f"Bearer {settings.DUFFEL_API_TOKEN}",
-            "Duffel-Version": "v2",
-            "Content-Type": "application/json",
-        },
-        limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
-        timeout=30.0,
-    )
-    yield
-    await http_client.aclose()
-
-
-app = FastAPI(title="Flight Price Matrix", lifespan=lifespan)
+app = FastAPI(title="BestFly — Flight Price Matrix")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -51,10 +25,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# ------------------------------------------------------------------ #
-# Request / Response schemas                                          #
-# ------------------------------------------------------------------ #
 
 class SearchInput(BaseModel):
     origins: list[str]
@@ -64,25 +34,25 @@ class SearchInput(BaseModel):
     date_to: date
     max_connections: int = 1
     max_duration_hours: int = 20
-    markup_percent: float = 0.0  # e.g. 5.0 = add 5%
+    markup_percent: float = 0.0
 
     @field_validator("origins")
     @classmethod
-    def max_two_origins(cls, v: list[str]) -> list[str]:
+    def max_two_origins(cls, v):
         if len(v) > 2:
             raise ValueError("Max 2 origins")
         return [x.upper() for x in v]
 
     @field_validator("destinations")
     @classmethod
-    def max_ten_destinations(cls, v: list[str]) -> list[str]:
+    def max_ten_destinations(cls, v):
         if len(v) > 10:
             raise ValueError("Max 10 destinations")
         return [x.upper() for x in v]
 
     @field_validator("date_to")
     @classmethod
-    def max_ten_day_range(cls, v: date, info) -> date:
+    def max_ten_day_range(cls, v, info):
         if "date_from" in info.data:
             if (v - info.data["date_from"]).days > 9:
                 raise ValueError("Date range must be ≤ 10 days")
@@ -96,10 +66,6 @@ class JobResponse(BaseModel):
     error: str | None = None
 
 
-# ------------------------------------------------------------------ #
-# Background task                                                      #
-# ------------------------------------------------------------------ #
-
 async def _run_search(job_id: str, req: SearchInput):
     jobs[job_id]["status"] = "running"
     try:
@@ -108,7 +74,7 @@ async def _run_search(job_id: str, req: SearchInput):
             if req.markup_percent
             else (lambda p: p)
         )
-        engine = SplitTicketingEngine(http=http_client)
+        engine = SplitTicketingEngine()
         search = SearchRequest(
             origins=req.origins,
             destinations=req.destinations,
@@ -122,13 +88,13 @@ async def _run_search(job_id: str, req: SearchInput):
         matrix = await engine.compute(search)
         jobs[job_id]["status"] = "complete"
         jobs[job_id]["matrix"] = _serialize_matrix(matrix)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.exception("Search job %s failed", job_id)
         jobs[job_id]["status"] = "failed"
         jobs[job_id]["error"] = str(exc)
 
 
-def _serialize_matrix(matrix: PriceMatrix) -> dict:
+def _serialize_matrix(matrix) -> dict:
     out: dict = {}
     for origin, dests in matrix.items():
         out[origin] = {}
@@ -143,13 +109,11 @@ def _serialize_matrix(matrix: PriceMatrix) -> dict:
                     "currency": entry.currency,
                     "longhaul_offer_id": entry.longhaul_offer_id,
                     "intraeu_offer_id": entry.intraeu_offer_id,
+                    "longhaul_airline": entry.longhaul_airline,
+                    "intraeu_airline": entry.intraeu_airline,
                 }
     return out
 
-
-# ------------------------------------------------------------------ #
-# Routes                                                               #
-# ------------------------------------------------------------------ #
 
 @app.get("/api/health")
 async def health():

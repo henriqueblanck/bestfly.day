@@ -1,8 +1,8 @@
 """
 Core split-ticketing engine.
 
-Step A: fire concurrent searches Origin → Hub (long-haul round-trips)
-Step B: fire concurrent searches Hub → Destination (intra-EU round-trips)
+Step A: fire concurrent searches Origin → Hub (long-haul)
+Step B: fire concurrent searches Hub → Destination (intra-EU low-cost)
 Step C: combine cheapest A + cheapest B per (origin, destination, date)
 """
 import asyncio
@@ -10,12 +10,10 @@ import logging
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Callable, Optional
-
-import httpx
+from typing import Callable
 
 from config import settings
-from duffel.client import DuffelClient, OfferSlice
+from google_flights.client import GoogleFlightsClient, OfferSlice
 
 log = logging.getLogger(__name__)
 
@@ -31,9 +29,10 @@ class MatrixEntry:
     currency: str
     longhaul_offer_id: str
     intraeu_offer_id: str
+    longhaul_airline: str = ""
+    intraeu_airline: str = ""
 
 
-# matrix[origin][destination][date_iso] = MatrixEntry
 PriceMatrix = dict[str, dict[str, dict[str, MatrixEntry]]]
 
 
@@ -50,49 +49,30 @@ class SearchRequest:
 
 
 class SplitTicketingEngine:
-    def __init__(self, http: Optional[httpx.AsyncClient] = None):
-        self._owned_http = http is None
-        self._http = http or httpx.AsyncClient(
-            headers={
-                "Authorization": f"Bearer {settings.DUFFEL_API_TOKEN}",
-                "Duffel-Version": "v2",
-                "Content-Type": "application/json",
-            },
-            timeout=30.0,
-        )
-        self._client = DuffelClient(self._http)
-        self._sem = asyncio.Semaphore(settings.CONCURRENCY_LIMIT)
-
-    async def close(self):
-        if self._owned_http:
-            await self._http.aclose()
-
-    # ------------------------------------------------------------------ #
+    def __init__(self):
+        self._client = GoogleFlightsClient()
 
     async def compute(self, req: SearchRequest) -> PriceMatrix:
         date_range = _date_range(req.date_from, req.date_to)
 
-        # Step A: long-haul origin → hub
         longhaul_tasks = [
-            self._fetch_safe(origin, hub, d, req.max_connections, req.max_duration_hours)
+            self._fetch(origin, hub, d, req.max_connections, req.max_duration_hours)
             for origin in req.origins
             for hub in req.hubs
             for d in date_range
         ]
 
-        # Step B: intra-EU hub → destination
         intraeu_tasks = [
-            self._fetch_safe(hub, dest, d, req.max_connections, req.max_duration_hours)
+            self._fetch(hub, dest, d, req.max_connections, req.max_duration_hours)
             for hub in req.hubs
             for dest in req.destinations
             for d in date_range
         ]
 
         log.info(
-            "Firing %d long-haul + %d intra-EU searches (semaphore=%d)",
+            "Firing %d long-haul + %d intra-EU searches",
             len(longhaul_tasks),
             len(intraeu_tasks),
-            settings.CONCURRENCY_LIMIT,
         )
 
         all_results = await asyncio.gather(*longhaul_tasks, *intraeu_tasks)
@@ -108,7 +88,7 @@ class SplitTicketingEngine:
             req.markup_fn,
         )
 
-    async def _fetch_safe(
+    async def _fetch(
         self,
         origin: str,
         destination: str,
@@ -116,53 +96,25 @@ class SplitTicketingEngine:
         max_connections: int,
         max_duration_hours: int,
     ) -> list[OfferSlice]:
-        for attempt in range(settings.MAX_RETRIES):
-            async with self._sem:
-                try:
-                    offers = await self._client.search_one_way(
-                        origin, destination, d, max_connections
-                    )
-                    return [
-                        o for o in offers
-                        if o.duration_minutes <= max_duration_hours * 60
-                        and o.connections <= max_connections
-                    ]
-                except httpx.HTTPStatusError as exc:
-                    if exc.response.status_code == 429:
-                        wait = 2 ** attempt
-                        log.warning("Rate-limited; retrying in %ds", wait)
-                    else:
-                        log.error("HTTP %s for %s→%s %s", exc.response.status_code, origin, destination, d)
-                        return []
-                except Exception as exc:  # noqa: BLE001
-                    log.error("Unexpected error %s→%s %s: %s", origin, destination, d, exc)
-                    return []
-            await asyncio.sleep(2 ** attempt)
-        return []
+        offers = await self._client.search_one_way(origin, destination, d, max_connections)
+        return [
+            o for o in offers
+            if o.duration_minutes <= max_duration_hours * 60
+            and o.connections <= max_connections
+        ]
 
-
-# ------------------------------------------------------------------ #
-# Matrix assembly                                                      #
-# ------------------------------------------------------------------ #
 
 def _build_matrix(
-    origins: list[str],
-    destinations: list[str],
-    hubs: list[str],
-    date_range: list[date],
-    lh_slices: list[OfferSlice],
-    eu_slices: list[OfferSlice],
-    max_duration_hours: int,
-    markup_fn: MarkupFn,
+    origins, destinations, hubs, date_range,
+    lh_slices, eu_slices,
+    max_duration_hours, markup_fn,
 ) -> PriceMatrix:
-    # cheapest[origin][hub][date] = best OfferSlice
     best_lh: dict[tuple, OfferSlice] = {}
     for s in lh_slices:
         key = (s.origin, s.destination, s.departure_date)
         if key not in best_lh or s.price < best_lh[key].price:
             best_lh[key] = s
 
-    # cheapest[hub][dest][date] = best OfferSlice
     best_eu: dict[tuple, OfferSlice] = {}
     for s in eu_slices:
         key = (s.origin, s.destination, s.departure_date)
@@ -175,7 +127,7 @@ def _build_matrix(
         for dest in destinations:
             matrix[origin][dest] = {}
             for d in date_range:
-                best_entry: MatrixEntry | None = None
+                best_entry = None
                 for hub in hubs:
                     lh = best_lh.get((origin, hub, d))
                     eu = best_eu.get((hub, dest, d))
@@ -191,6 +143,8 @@ def _build_matrix(
                             currency=lh.currency,
                             longhaul_offer_id=lh.offer_id,
                             intraeu_offer_id=eu.offer_id,
+                            longhaul_airline=lh.airline,
+                            intraeu_airline=eu.airline,
                         )
                 if best_entry:
                     matrix[origin][dest][d.isoformat()] = best_entry
@@ -198,13 +152,9 @@ def _build_matrix(
     return matrix
 
 
-# ------------------------------------------------------------------ #
-# Helpers                                                              #
-# ------------------------------------------------------------------ #
-
 def _date_range(start: date, end: date) -> list[date]:
     return [start + timedelta(days=i) for i in range((end - start).days + 1)]
 
 
-def _flatten(nested: list[list[OfferSlice]]) -> list[OfferSlice]:
+def _flatten(nested):
     return [item for sublist in nested for item in sublist]
