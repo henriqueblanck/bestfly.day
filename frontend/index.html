@@ -3,10 +3,43 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BestFly — Split-Ticket Price Matrix</title>
+    <title>BestFly — Stop overpaying for flights</title>
+    <meta name="description" content="Split-ticket price intelligence. Find flight loopholes the airlines don't want you to know about." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
     <style>
-      * { box-sizing: border-box; margin: 0; padding: 0; }
-      body { background: #0a0a14; color: #e0e0e0; font-family: 'Inter', system-ui, sans-serif; }
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      :root {
+        --bg: #080812;
+        --bg-card: #0d0d1f;
+        --bg-elevated: #111128;
+        --border: #1a1a3a;
+        --border-bright: #2a2a5a;
+        --green: #00FF88;
+        --green-dim: #00cc6a;
+        --green-bg: rgba(0,255,136,0.06);
+        --red: #ff4466;
+        --red-bg: rgba(255,68,102,0.08);
+        --yellow: #ffd24d;
+        --text: #e8e8f0;
+        --muted: #55557a;
+        --muted2: #888899;
+        --font: 'Space Grotesk', system-ui, sans-serif;
+        --mono: 'Space Mono', monospace;
+      }
+      html { scroll-behavior: smooth; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font);
+        -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
+      }
+      ::-webkit-scrollbar { width: 4px; }
+      ::-webkit-scrollbar-track { background: var(--bg); }
+      ::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
+      ::selection { background: rgba(0,255,136,0.2); }
     </style>
   </head>
   <body>
