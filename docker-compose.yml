@@ -28,10 +28,10 @@ services:
       - bestfly-backend
     networks:
       - internal
-      - traefik_proxy
+      - traefik-public
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=traefik_proxy"
+      - "traefik.docker.network=traefik-public"
       # ── Router ──────────────────────────────────────────────────────────
       - "traefik.http.routers.bestfly.rule=Host(`fly.boxbid.com.br`)"
       - "traefik.http.routers.bestfly.entrypoints=websecure"
@@ -47,5 +47,5 @@ services:
 networks:
   internal:
     driver: bridge
-  traefik_proxy:
+  traefik-public:
     external: true
