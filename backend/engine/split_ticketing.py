@@ -116,8 +116,8 @@ class SplitTicketingEngine:
         max_connections: int,
         max_duration_hours: int,
     ) -> list[OfferSlice]:
-        async with self._sem:
-            for attempt in range(settings.MAX_RETRIES):
+        for attempt in range(settings.MAX_RETRIES):
+            async with self._sem:
                 try:
                     offers = await self._client.search_one_way(
                         origin, destination, d, max_connections
@@ -131,13 +131,13 @@ class SplitTicketingEngine:
                     if exc.response.status_code == 429:
                         wait = 2 ** attempt
                         log.warning("Rate-limited; retrying in %ds", wait)
-                        await asyncio.sleep(wait)
                     else:
                         log.error("HTTP %s for %s→%s %s", exc.response.status_code, origin, destination, d)
                         return []
                 except Exception as exc:  # noqa: BLE001
                     log.error("Unexpected error %s→%s %s: %s", origin, destination, d, exc)
                     return []
+            await asyncio.sleep(2 ** attempt)
         return []
 
 
