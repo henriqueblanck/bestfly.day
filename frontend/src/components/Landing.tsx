@@ -16,9 +16,11 @@ const BESTFLY_PRICE = 1890;
 
 interface Props {
   onStart: () => void;
+  theme?: string;
+  onToggleTheme?: () => void;
 }
 
-export function Landing({ onStart }: Props) {
+export function Landing({ onStart, theme, onToggleTheme }: Props) {
   const [strikeVisible, setStrikeVisible] = useState(false);
   const [bestflyVisible, setBestflyVisible] = useState(false);
   const [savingsInput, setSavingsInput] = useState("");
@@ -45,10 +47,28 @@ export function Landing({ onStart }: Props) {
         <span style={{ fontFamily: "var(--mono)", color: "var(--green)", fontSize: 16, fontWeight: 700, letterSpacing: -0.5 }}>
           bestfly<span style={{ color: "var(--muted)" }}>.day</span>
         </span>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <span style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--mono)" }}>
             <span style={{ color: "var(--green)" }}>●</span> 847 deals found today
           </span>
+          {onToggleTheme && (
+            <button
+              onClick={onToggleTheme}
+              title={theme === "dark" ? "Switch to cream" : "Switch to dark"}
+              style={{
+                background: "none",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--r-sm)",
+                color: "var(--muted2)",
+                fontSize: 13,
+                padding: "4px 10px",
+                cursor: "pointer",
+                fontFamily: "var(--mono)",
+              }}
+            >
+              {theme === "dark" ? "☀" : "◑"}
+            </button>
+          )}
         </div>
       </nav>
 

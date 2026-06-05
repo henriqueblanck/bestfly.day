@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import "./styles.css";
 import { Landing } from "./components/Landing";
 import { SearchForm } from "./components/SearchForm";
@@ -9,6 +9,7 @@ import type { Matrix, SearchPayload } from "./api/search";
 import type { LogLine } from "./components/TerminalLog";
 
 type View = "landing" | "search";
+type Theme = "dark" | "cream";
 
 const STATUS_MESSAGES: Record<string, LogLine> = {
   queued:   { kind: "info", text: "Job queued. Firing concurrent batch requests…" },
@@ -19,7 +20,16 @@ const STATUS_MESSAGES: Record<string, LogLine> = {
 
 export default function App() {
   const [view, setView] = useState<View>("landing");
+  const [theme, setTheme] = useState<Theme>("dark");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
+
+  function toggleTheme() {
+    setTheme((t) => (t === "dark" ? "cream" : "dark"));
+  }
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [matrix, setMatrix] = useState<Matrix | null>(null);
   const [origins, setOrigins] = useState<string[]>([]);
@@ -71,7 +81,7 @@ export default function App() {
   }
 
   if (view === "landing") {
-    return <Landing onStart={() => setView("search")} />;
+    return <Landing onStart={() => setView("search")} theme={theme} onToggleTheme={toggleTheme} />;
   }
 
   return (
@@ -85,11 +95,29 @@ export default function App() {
         >
           bestfly<span style={{ color: "var(--muted)" }}>.day</span>
         </button>
-        {matrix && (
-          <span style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--mono)" }}>
-            <span style={{ color: "var(--green)" }}>●</span> matrix ready
-          </span>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {matrix && (
+            <span style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--mono)" }}>
+              <span style={{ color: "var(--green)" }}>●</span> matrix ready
+            </span>
+          )}
+          <button
+            onClick={toggleTheme}
+            title={theme === "dark" ? "Switch to cream" : "Switch to dark"}
+            style={{
+              background: "none",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--r-sm)",
+              color: "var(--muted2)",
+              fontSize: 13,
+              padding: "4px 10px",
+              cursor: "pointer",
+              fontFamily: "var(--mono)",
+            }}
+          >
+            {theme === "dark" ? "☀" : "◑"}
+          </button>
+        </div>
       </nav>
 
       <div style={{ flex: 1, display: "grid", gridTemplateColumns: matrix ? "380px 1fr" : "1fr", gap: 0, maxWidth: matrix ? "none" : 560, margin: matrix ? 0 : "40px auto", padding: matrix ? 0 : "0 24px", width: "100%" }}>

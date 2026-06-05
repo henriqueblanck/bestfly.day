@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { SearchPayload } from "../api/search";
+import { AirportTagInput } from "./AirportTagInput";
 
 interface Props {
   onSubmit: (p: SearchPayload) => void;
@@ -15,22 +16,23 @@ function todayPlus(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-const MAX_COMBOS = 25;
+const MAX_COMBOS = 50;
 
 export function SearchForm({ onSubmit, loading }: Props) {
-  const [origins, setOrigins] = useState("GRU,BSB");
-  const [destinations, setDestinations] = useState("BCN,PRG,VIE,ATH");
+  const [originCodes, setOriginCodes] = useState<string[]>(["GRU", "BSB"]);
+  const [destCodes, setDestCodes] = useState<string[]>(["BCN", "PRG", "VIE"]);
   const [hubs, setHubs] = useState<string[]>(["MAD", "LIS"]);
   const [dateFrom, setDateFrom] = useState(todayPlus(30));
-  const [dateTo, setDateTo] = useState(todayPlus(35));
+  const [dateTo, setDateTo] = useState(todayPlus(33));
   const [maxConn, setMaxConn] = useState(1);
   const [maxDur, setMaxDur] = useState(20);
   const [markup, setMarkup] = useState(0);
 
-  const destList = destinations.split(",").map((s) => s.trim()).filter(Boolean);
   const days = dateFrom && dateTo ? Math.max(1, Math.round((new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / 86400000) + 1) : 1;
-  const combos = destList.length * days;
-  const overLimit = combos > MAX_COMBOS || destList.length > 5;
+  const longhaulSearches = originCodes.length * hubs.length * days;
+  const intraeуSearches = hubs.length * destCodes.length * days;
+  const totalSearches = longhaulSearches + intraeуSearches;
+  const overLimit = totalSearches > MAX_COMBOS || destCodes.length > 5;
 
   function toggleHub(hub: string) {
     setHubs((prev) =>
@@ -40,10 +42,10 @@ export function SearchForm({ onSubmit, loading }: Props) {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (overLimit) return;
+    if (overLimit || originCodes.length === 0 || destCodes.length === 0) return;
     onSubmit({
-      origins: origins.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean),
-      destinations: destList.map((s) => s.toUpperCase()),
+      origins: originCodes,
+      destinations: destCodes,
       hubs,
       date_from: dateFrom,
       date_to: dateTo,
@@ -58,31 +60,27 @@ export function SearchForm({ onSubmit, loading }: Props) {
 
       {/* Origins + Destinations */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <div>
-          <label style={labelStyle}>Origins</label>
-          <input
-            className="bf-input"
-            value={origins}
-            onChange={(e) => setOrigins(e.target.value)}
-            placeholder="GRU, BSB"
-          />
-          <span style={hintStyle}>IATA codes, comma-separated · max 2</span>
-        </div>
-        <div>
-          <label style={labelStyle}>Destinations</label>
-          <input
-            className="bf-input"
-            value={destinations}
-            onChange={(e) => setDestinations(e.target.value)}
-            placeholder="BCN, PRG, VIE..."
-          />
-          <span style={hintStyle}>up to 10 cities</span>
-        </div>
+        <AirportTagInput
+          label="Origens"
+          hint="máx 2 aeroportos"
+          value={originCodes}
+          onChange={setOriginCodes}
+          max={2}
+          placeholder="São Paulo, Brasília…"
+        />
+        <AirportTagInput
+          label="Destinos"
+          hint="máx 5 aeroportos"
+          value={destCodes}
+          onChange={setDestCodes}
+          max={5}
+          placeholder="Barcelona, Praga…"
+        />
       </div>
 
       {/* Hubs */}
       <div>
-        <label style={labelStyle}>Transatlantic Hubs</label>
+        <label style={labelStyle}>Hubs Transatlânticos</label>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
           {HUB_OPTIONS.map((hub) => (
             <button
@@ -95,12 +93,12 @@ export function SearchForm({ onSubmit, loading }: Props) {
             </button>
           ))}
         </div>
-        <span style={hintStyle}>long-haul anchor points</span>
+        <span style={hintStyle}>escalas de conexão transatlântica</span>
       </div>
 
-      {/* Date range — 10-day strip */}
+      {/* Date range */}
       <div>
-        <label style={labelStyle}>Date Window</label>
+        <label style={labelStyle}>Janela de Datas</label>
         <DateStrip
           from={dateFrom}
           to={dateTo}
@@ -111,15 +109,15 @@ export function SearchForm({ onSubmit, loading }: Props) {
       {/* Advanced row */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
         <div>
-          <label style={labelStyle}>Max stops</label>
+          <label style={labelStyle}>Máx. escalas</label>
           <select className="bf-input" value={maxConn} onChange={(e) => setMaxConn(+e.target.value)} style={{ cursor: "pointer" }}>
-            <option value={0}>Direct only</option>
-            <option value={1}>1 stop</option>
-            <option value={2}>2 stops</option>
+            <option value={0}>Direto</option>
+            <option value={1}>1 escala</option>
+            <option value={2}>2 escalas</option>
           </select>
         </div>
         <div>
-          <label style={labelStyle}>Max duration (h)</label>
+          <label style={labelStyle}>Duração máx (h)</label>
           <input className="bf-input" type="number" min={5} max={36} value={maxDur} onChange={(e) => setMaxDur(+e.target.value)} />
         </div>
         <div>
@@ -129,11 +127,18 @@ export function SearchForm({ onSubmit, loading }: Props) {
       </div>
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, fontFamily: "var(--mono)", color: overLimit ? "var(--crimson)" : "var(--ink-3)", marginTop: 4 }}>
-        <span>{destList.length} destinos × {days} dias = <strong style={{ color: overLimit ? "var(--crimson)" : "var(--ink-2)" }}>{combos} combos</strong></span>
-        <span>limite: 25</span>
+        <span>
+          ({originCodes.length}ori × {hubs.length}hub + {hubs.length}hub × {destCodes.length}dest) × {days}d = <strong style={{ color: overLimit ? "var(--crimson)" : "var(--ink-2)" }}>{totalSearches} buscas</strong>
+        </span>
+        <span>limite: {MAX_COMBOS}</span>
       </div>
 
-      <button className="btn-primary" type="submit" disabled={loading || overLimit} style={{ width: "100%", fontSize: 15, opacity: overLimit ? 0.5 : 1 }}>
+      <button
+        className="btn-primary"
+        type="submit"
+        disabled={loading || overLimit || originCodes.length === 0 || destCodes.length === 0}
+        style={{ width: "100%", fontSize: 15, opacity: (overLimit || originCodes.length === 0 || destCodes.length === 0) ? 0.5 : 1 }}
+      >
         {loading ? "Scanning routes…" : overLimit ? "Reduza destinos ou datas →" : "Find loopholes →"}
       </button>
     </form>

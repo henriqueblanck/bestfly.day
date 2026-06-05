@@ -58,7 +58,7 @@
   display: inline-block;
   width: 8px;
   height: 1em;
-  background: #00FF88;
+  background: var(--green);
   animation: blink 1s step-end infinite;
   vertical-align: text-bottom;
   margin-left: 2px;
@@ -188,7 +188,7 @@
 /* ── Terminal ───────────────────────────────────────────────── */
 
 .terminal {
-  background: #050510;
+  background: var(--terminal-bg);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 16px;

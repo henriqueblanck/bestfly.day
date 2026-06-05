@@ -53,13 +53,20 @@ class SearchInput(BaseModel):
     @field_validator("date_to")
     @classmethod
     def combo_limit(cls, v, info):
-        if "date_from" in info.data and "destinations" in info.data:
-            days = (v - info.data["date_from"]).days + 1
-            dests = len(info.data["destinations"])
+        data = info.data
+        if "date_from" in data:
+            days = (v - data["date_from"]).days + 1
             if days > 10:
                 raise ValueError("Date range must be ≤ 10 days")
-            if dests * days > 25:
-                raise ValueError(f"destinations × days must be ≤ 25 (currently {dests} × {days} = {dests*days})")
+            origins = len(data.get("origins", []))
+            hubs = len(data.get("hubs", []))
+            dests = len(data.get("destinations", []))
+            total = (origins * hubs + hubs * dests) * days
+            if total > 50:
+                raise ValueError(
+                    f"Total searches must be ≤ 50 "
+                    f"(({origins}×{hubs} + {hubs}×{dests}) × {days} = {total})"
+                )
         return v
 
 
