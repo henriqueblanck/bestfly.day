@@ -15,15 +15,22 @@ function todayPlus(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+const MAX_COMBOS = 25;
+
 export function SearchForm({ onSubmit, loading }: Props) {
   const [origins, setOrigins] = useState("GRU,BSB");
-  const [destinations, setDestinations] = useState("BCN,PRG,VIE,ATH,DUB,LHR");
+  const [destinations, setDestinations] = useState("BCN,PRG,VIE,ATH");
   const [hubs, setHubs] = useState<string[]>(["MAD", "LIS"]);
   const [dateFrom, setDateFrom] = useState(todayPlus(30));
-  const [dateTo, setDateTo] = useState(todayPlus(39));
+  const [dateTo, setDateTo] = useState(todayPlus(35));
   const [maxConn, setMaxConn] = useState(1);
   const [maxDur, setMaxDur] = useState(20);
   const [markup, setMarkup] = useState(0);
+
+  const destList = destinations.split(",").map((s) => s.trim()).filter(Boolean);
+  const days = dateFrom && dateTo ? Math.max(1, Math.round((new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / 86400000) + 1) : 1;
+  const combos = destList.length * days;
+  const overLimit = combos > MAX_COMBOS || destList.length > 5;
 
   function toggleHub(hub: string) {
     setHubs((prev) =>
@@ -33,9 +40,10 @@ export function SearchForm({ onSubmit, loading }: Props) {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (overLimit) return;
     onSubmit({
       origins: origins.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean),
-      destinations: destinations.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean),
+      destinations: destList.map((s) => s.toUpperCase()),
       hubs,
       date_from: dateFrom,
       date_to: dateTo,
@@ -120,8 +128,13 @@ export function SearchForm({ onSubmit, loading }: Props) {
         </div>
       </div>
 
-      <button className="btn-primary" type="submit" disabled={loading} style={{ width: "100%", fontSize: 15, marginTop: 4 }}>
-        {loading ? "Scanning routes…" : "Find loopholes →"}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, fontFamily: "var(--mono)", color: overLimit ? "var(--crimson)" : "var(--ink-3)", marginTop: 4 }}>
+        <span>{destList.length} destinos × {days} dias = <strong style={{ color: overLimit ? "var(--crimson)" : "var(--ink-2)" }}>{combos} combos</strong></span>
+        <span>limite: 25</span>
+      </div>
+
+      <button className="btn-primary" type="submit" disabled={loading || overLimit} style={{ width: "100%", fontSize: 15, opacity: overLimit ? 0.5 : 1 }}>
+        {loading ? "Scanning routes…" : overLimit ? "Reduza destinos ou datas →" : "Find loopholes →"}
       </button>
     </form>
   );

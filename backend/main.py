@@ -45,17 +45,21 @@ class SearchInput(BaseModel):
 
     @field_validator("destinations")
     @classmethod
-    def max_ten_destinations(cls, v):
-        if len(v) > 10:
-            raise ValueError("Max 10 destinations")
+    def max_five_destinations(cls, v):
+        if len(v) > 5:
+            raise ValueError("Max 5 destinations")
         return [x.upper() for x in v]
 
     @field_validator("date_to")
     @classmethod
-    def max_ten_day_range(cls, v, info):
-        if "date_from" in info.data:
-            if (v - info.data["date_from"]).days > 9:
+    def combo_limit(cls, v, info):
+        if "date_from" in info.data and "destinations" in info.data:
+            days = (v - info.data["date_from"]).days + 1
+            dests = len(info.data["destinations"])
+            if days > 10:
                 raise ValueError("Date range must be ≤ 10 days")
+            if dests * days > 25:
+                raise ValueError(f"destinations × days must be ≤ 25 (currently {dests} × {days} = {dests*days})")
         return v
 
 
