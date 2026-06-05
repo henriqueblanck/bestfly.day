@@ -2,4 +2,4 @@ fastapi>=0.111
 uvicorn[standard]>=0.29
 pydantic>=2.7
 pydantic-settings>=2.2
-fli>=0.10.0
+git+https://github.com/punitarani/fli.git
