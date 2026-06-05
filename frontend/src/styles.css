@@ -272,3 +272,83 @@
   animation: fade-in 0.15s ease;
   box-shadow: 0 8px 32px rgba(0,0,0,0.5);
 }
+
+/* ── Mobile responsive ──────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  /* Stack the two-column layout vertically */
+  div[style*="gridTemplateColumns"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* App layout: panels go vertical */
+  .bf-layout-panels {
+    flex-direction: column !important;
+  }
+
+  /* Left panel: no fixed border, full width */
+  .bf-left-panel {
+    border-right: none !important;
+    border-bottom: 1px solid var(--line) !important;
+    overflow-y: visible !important;
+  }
+
+  /* Matrix cells: 52px tall, smaller fonts */
+  .matrix-scroll table td {
+    height: 52px !important;
+    min-width: 76px !important;
+    padding: 4px 6px !important;
+    font-size: 11px !important;
+  }
+
+  /* Matrix destination column: narrower on mobile */
+  .matrix-scroll table td:first-child {
+    min-width: 0 !important;
+    padding-right: 8px !important;
+  }
+
+  /* Smaller price text in cells */
+  .matrix-scroll table td div:first-child {
+    font-size: 11px !important;
+  }
+
+  /* Matrix scroll: always horizontal scroll, first col sticky */
+  .matrix-scroll {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Header navigation padding */
+  nav {
+    padding: 12px 16px !important;
+  }
+
+  /* Matrix right panel: full width, reduced padding */
+  div[style*="padding: 28px"] {
+    padding: 16px !important;
+  }
+
+  /* Best deal callout: stack vertically */
+  .bf-best-deal {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 14px !important;
+  }
+
+  /* Large price in callout: smaller on mobile */
+  .bf-best-deal-price {
+    font-size: 22px !important;
+  }
+
+  /* Search form text */
+  .bf-input {
+    font-size: 16px !important; /* prevent iOS zoom */
+  }
+
+  /* Share modal card: fit mobile screen */
+  .bf-share-card {
+    width: 88vw !important;
+    height: auto !important;
+    min-height: 480px !important;
+  }
+}

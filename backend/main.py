@@ -111,6 +111,8 @@ def _serialize_matrix(matrix) -> dict:
                     "intraeu_offer_id": entry.intraeu_offer_id,
                     "longhaul_airline": entry.longhaul_airline,
                     "intraeu_airline": entry.intraeu_airline,
+                    "longhaul_duration_minutes": entry.longhaul_duration_minutes,
+                    "intraeu_duration_minutes": entry.intraeu_duration_minutes,
                 }
     return out
 

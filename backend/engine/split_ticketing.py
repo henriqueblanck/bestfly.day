@@ -31,6 +31,8 @@ class MatrixEntry:
     intraeu_offer_id: str
     longhaul_airline: str = ""
     intraeu_airline: str = ""
+    longhaul_duration_minutes: int = 0
+    intraeu_duration_minutes: int = 0
 
 
 PriceMatrix = dict[str, dict[str, dict[str, MatrixEntry]]]
@@ -145,6 +147,8 @@ def _build_matrix(
                             intraeu_offer_id=eu.offer_id,
                             longhaul_airline=lh.airline,
                             intraeu_airline=eu.airline,
+                            longhaul_duration_minutes=lh.duration_minutes,
+                            intraeu_duration_minutes=eu.duration_minutes,
                         )
                 if best_entry:
                     matrix[origin][dest][d.isoformat()] = best_entry
