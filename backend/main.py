@@ -12,8 +12,8 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 
-from .config import settings
-from .engine.split_ticketing import SearchRequest, SplitTicketingEngine, PriceMatrix
+from config import settings
+from engine.split_ticketing import SearchRequest, SplitTicketingEngine, PriceMatrix
 
 log = logging.getLogger(__name__)
 

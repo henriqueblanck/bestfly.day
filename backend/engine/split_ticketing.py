@@ -14,8 +14,8 @@ from typing import Callable, Optional
 
 import httpx
 
-from ..config import settings
-from ..duffel.client import DuffelClient, OfferSlice
+from config import settings
+from duffel.client import DuffelClient, OfferSlice
 
 log = logging.getLogger(__name__)
 

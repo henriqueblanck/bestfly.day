@@ -11,7 +11,7 @@ from datetime import date
 import httpx
 from pydantic import BaseModel
 
-from ..config import settings
+from config import settings
 
 log = logging.getLogger(__name__)
 
