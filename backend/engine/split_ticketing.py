@@ -50,6 +50,9 @@ class SearchRequest:
     markup_fn: MarkupFn = field(default=lambda p: p)
 
 
+SEARCH_DELAY_SECONDS = 2.0
+
+
 class SplitTicketingEngine:
     def __init__(self):
         self._client = GoogleFlightsClient()
@@ -57,31 +60,38 @@ class SplitTicketingEngine:
     async def compute(self, req: SearchRequest) -> PriceMatrix:
         date_range = _date_range(req.date_from, req.date_to)
 
-        longhaul_tasks = [
-            self._fetch(origin, hub, d, req.max_connections, req.max_duration_hours)
+        longhaul_combos = [
+            (origin, hub, d)
             for origin in req.origins
             for hub in req.hubs
             for d in date_range
         ]
-
-        intraeu_tasks = [
-            self._fetch(hub, dest, d, req.max_connections, req.max_duration_hours)
+        intraeu_combos = [
+            (hub, dest, d)
             for hub in req.hubs
             for dest in req.destinations
             for d in date_range
         ]
 
-        log.info(
-            "Firing %d long-haul + %d intra-EU searches",
-            len(longhaul_tasks),
-            len(intraeu_tasks),
-        )
+        total = len(longhaul_combos) + len(intraeu_combos)
+        log.info("Sequential: %d long-haul + %d intra-EU = %d searches", len(longhaul_combos), len(intraeu_combos), total)
 
-        all_results = await asyncio.gather(*longhaul_tasks, *intraeu_tasks)
+        lh_results = []
+        for i, (origin, hub, d) in enumerate(longhaul_combos):
+            result = await self._fetch(origin, hub, d, req.max_connections, req.max_duration_hours)
+            lh_results.append(result)
+            if i < len(longhaul_combos) - 1:
+                await asyncio.sleep(SEARCH_DELAY_SECONDS)
 
-        n_lh = len(longhaul_tasks)
-        lh_slices = _flatten(all_results[:n_lh])
-        eu_slices = _flatten(all_results[n_lh:])
+        eu_results = []
+        for i, (hub, dest, d) in enumerate(intraeu_combos):
+            result = await self._fetch(hub, dest, d, req.max_connections, req.max_duration_hours)
+            eu_results.append(result)
+            if i < len(intraeu_combos) - 1:
+                await asyncio.sleep(SEARCH_DELAY_SECONDS)
+
+        lh_slices = _flatten(lh_results)
+        eu_slices = _flatten(eu_results)
 
         return _build_matrix(
             req.origins, req.destinations, req.hubs, date_range,
