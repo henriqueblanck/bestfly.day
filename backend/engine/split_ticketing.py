@@ -10,7 +10,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Callable
+from typing import Callable, Optional
 
 import httpx
 
@@ -50,7 +50,7 @@ class SearchRequest:
 
 
 class SplitTicketingEngine:
-    def __init__(self, http: httpx.AsyncClient | None = None):
+    def __init__(self, http: Optional[httpx.AsyncClient] = None):
         self._owned_http = http is None
         self._http = http or httpx.AsyncClient(
             headers={
