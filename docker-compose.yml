@@ -6,7 +6,13 @@ services:
       dockerfile: Dockerfile
     container_name: bestfly-backend
     restart: unless-stopped
-    env_file: .env
+    environment:
+      - DUFFEL_API_TOKEN=${DUFFEL_API_TOKEN}
+      - DUFFEL_API_BASE=${DUFFEL_API_BASE}
+      - CONCURRENCY_LIMIT=${CONCURRENCY_LIMIT}
+      - MAX_RETRIES=${MAX_RETRIES}
+      - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS}
+      - POLL_TIMEOUT_SECONDS=${POLL_TIMEOUT_SECONDS}
     networks:
       - internal
     labels:
