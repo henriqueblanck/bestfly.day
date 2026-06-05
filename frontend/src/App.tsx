@@ -12,7 +12,7 @@ type View = "landing" | "search";
 
 const STATUS_MESSAGES: Record<string, LogLine> = {
   queued:   { kind: "info", text: "Job queued. Firing concurrent batch requests…" },
-  running:  { kind: "info", text: "Batches in flight. Waiting for Duffel responses…" },
+  running:  { kind: "info", text: "Batches in flight. Scanning Google Flights…" },
   complete: { kind: "ok",   text: "All results collected. Building price matrix…" },
   failed:   { kind: "error", text: "Search failed." },
 };
