@@ -4,7 +4,7 @@ import { Landing } from "./components/Landing";
 import { SearchForm } from "./components/SearchForm";
 import { PriceMatrix } from "./components/PriceMatrix";
 import { TerminalLog } from "./components/TerminalLog";
-import { startSearch, waitForMatrix } from "./api/search";
+import { startSearch, waitForMatrix, TimeoutWithPartialResult } from "./api/search";
 import type { Matrix, SearchPayload } from "./api/search";
 import type { LogLine } from "./components/TerminalLog";
 
@@ -57,9 +57,14 @@ export default function App() {
       addLog({ kind: "ok", text: `Matrix complete. ${totalRoutes} routes priced. ✦` });
       setMatrix(result);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      addLog({ kind: "error", text: msg });
-      setError(msg);
+      if (e instanceof TimeoutWithPartialResult && Object.keys(e.matrix).length > 0) {
+        addLog({ kind: "info", text: "Tempo esgotado — exibindo resultados parciais." });
+        setMatrix(e.matrix);
+      } else {
+        const msg = e instanceof Error ? e.message : String(e);
+        addLog({ kind: "error", text: msg });
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }

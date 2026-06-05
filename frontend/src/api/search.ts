@@ -51,6 +51,14 @@ export async function pollJob(jobId: string): Promise<JobResult> {
   return res.json();
 }
 
+export class TimeoutWithPartialResult extends Error {
+  matrix: Matrix;
+  constructor(matrix: Matrix) {
+    super("Search timed out — showing partial results");
+    this.matrix = matrix;
+  }
+}
+
 export async function waitForMatrix(
   jobId: string,
   onProgress: (status: string) => void,
@@ -58,12 +66,14 @@ export async function waitForMatrix(
   timeoutMs = 120_000
 ): Promise<Matrix> {
   const deadline = Date.now() + timeoutMs;
+  let lastMatrix: Matrix = {};
   while (Date.now() < deadline) {
     const result = await pollJob(jobId);
     onProgress(result.status);
+    if (result.matrix) lastMatrix = result.matrix;
     if (result.status === "complete" && result.matrix) return result.matrix;
     if (result.status === "failed") throw new Error(result.error ?? "Search failed");
     await new Promise((r) => setTimeout(r, intervalMs));
   }
-  throw new Error("Search timed out");
+  throw new TimeoutWithPartialResult(lastMatrix);
 }
