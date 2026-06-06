@@ -3,7 +3,7 @@ import uuid
 import asyncio
 import logging
 import time
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Literal
 
@@ -50,6 +50,8 @@ app = FastAPI(title="BestFly — Flight Price Matrix")
 @app.on_event("startup")
 async def startup():
     db.init_db()
+    jobs.update(db.load_jobs(_JOB_TTL_SECONDS))
+    log.info("Restored %d jobs from SQLite", len(jobs))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -178,6 +180,7 @@ async def _run_search(job_id: str, req: SearchInput):
         serialized_out = _serialize_matrix(matrix)
         serialized_out = await _enrich_with_stats(serialized_out)
         jobs[job_id]["matrix"] = serialized_out
+        await asyncio.to_thread(db.save_job, job_id, jobs[job_id])
 
         # ── Return (roundtrip) ──
         if req.trip_type == "roundtrip" and req.return_date_from:
@@ -203,14 +206,35 @@ async def _run_search(job_id: str, req: SearchInput):
             # Matrix ready — mark complete so the frontend can render immediately.
             # Round-trip Playwright searches run as a background task (heavy).
             jobs[job_id]["status"] = "complete"
+            await asyncio.to_thread(db.save_job, job_id, jobs[job_id])
 
             # ── Round-trip direct baseline (background) ──
-            # One representative combo per origin↔dest pair (mid dates).
-            # Playwright is slow; keeping it to 1 combo/pair avoids blocking.
-            from datetime import timedelta as _td
+            # HTTP direto; até 5 datas por par.
+            def _spread_dates(start: date, end: date, n: int = 5) -> list[date]:
+                """Return up to n evenly-spaced dates within [start, end] inclusive."""
+                span = (end - start).days
+                if span <= 0:
+                    return [start]
+                count = min(n, span + 1)
+                if count == 1:
+                    return [start]
+                return [
+                    start + timedelta(days=round(i * span / (count - 1)))
+                    for i in range(count)
+                ]
+
             rt_client = GoogleFlightsClient()
-            out_mid = req.date_from + (req.date_to - req.date_from) // 2
-            ret_mid = req.return_date_from + (ret_end - req.return_date_from) // 2
+            out_span = (req.date_to - req.date_from).days
+            ret_span = (ret_end - req.return_date_from).days
+            spread_out = _spread_dates(req.date_from, req.date_to, n=5)
+            N_DATES = len(spread_out)
+
+            def _paired_ret(od: date) -> date:
+                """Pick the proportionally-matching return date for a given outbound date."""
+                if out_span == 0:
+                    return req.return_date_from + timedelta(days=ret_span // 2)
+                ratio = (od - req.date_from).days / out_span
+                return req.return_date_from + timedelta(days=round(ratio * ret_span))
 
             _rt_sem = asyncio.Semaphore(3)
 
@@ -242,11 +266,12 @@ async def _run_search(job_id: str, req: SearchInput):
                     return None
 
             combos = [
-                (origin, dest, out_mid, ret_mid)
+                (origin, dest, od, _paired_ret(od))
                 for origin in req.origins
                 for dest in req.destinations
+                for od in spread_out
             ]
-            on_log(f"[roundtrip] {len(combos)} buscas Playwright em background…")
+            on_log(f"[roundtrip] {len(combos)} combos ({N_DATES} datas) em background…")
 
             async def _run_rt_bg():
                 probe_results = await asyncio.gather(*[_probe_rt(*c) for c in combos])
@@ -258,12 +283,14 @@ async def _run_search(job_id: str, req: SearchInput):
                     rt_results.setdefault(o, {}).setdefault(d, {})[out_iso] = offer_data
                 if rt_results:
                     jobs[job_id]["roundtrip_direct"] = rt_results
+                    await asyncio.to_thread(db.save_job, job_id, jobs[job_id])
 
             asyncio.create_task(_run_rt_bg())
     except Exception as exc:
         log.exception("Search job %s failed", job_id)
         jobs[job_id]["status"] = "failed"
         jobs[job_id]["error"] = str(exc)
+        await asyncio.to_thread(db.save_job, job_id, jobs[job_id])
 
 
 def _serialize_matrix(matrix) -> dict:
@@ -528,8 +555,9 @@ async def start_search(body: SearchInput, background: BackgroundTasks):
         "return_matrix": None,
         "logs": [],
         "error": None,
-        "created_at": time.time(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
+    await asyncio.to_thread(db.save_job, job_id, jobs[job_id])
     background.add_task(_run_search, job_id, body)
     return JobResponse(job_id=job_id, status="queued")
 

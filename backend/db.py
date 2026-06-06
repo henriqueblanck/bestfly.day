@@ -47,6 +47,17 @@ def init_db() -> None:
                 recorded_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_hub_wins ON hub_wins(hub, recorded_at);
+            CREATE TABLE IF NOT EXISTS jobs (
+                job_id      TEXT PRIMARY KEY,
+                status      TEXT NOT NULL,
+                logs_json   TEXT NOT NULL DEFAULT '[]',
+                matrix_json TEXT,
+                return_matrix_json TEXT,
+                roundtrip_direct_json TEXT,
+                error       TEXT,
+                created_at  TEXT NOT NULL,
+                updated_at  TEXT NOT NULL
+            );
         """)
         # Migrate existing DBs that predate the departure_time column
         try:
@@ -54,6 +65,68 @@ def init_db() -> None:
         except Exception:
             pass
     log.info("DB initialised at %s", DB_PATH)
+
+
+def save_job(job_id: str, job: dict) -> None:
+    import json
+    now = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO jobs (job_id, status, logs_json, matrix_json,
+                              return_matrix_json, roundtrip_direct_json,
+                              error, created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(job_id) DO UPDATE SET
+                status=excluded.status,
+                logs_json=excluded.logs_json,
+                matrix_json=excluded.matrix_json,
+                return_matrix_json=excluded.return_matrix_json,
+                roundtrip_direct_json=excluded.roundtrip_direct_json,
+                error=excluded.error,
+                updated_at=excluded.updated_at
+            """,
+            (
+                job_id,
+                job.get("status", "queued"),
+                json.dumps(job.get("logs", [])),
+                json.dumps(job["matrix"]) if job.get("matrix") else None,
+                json.dumps(job["return_matrix"]) if job.get("return_matrix") else None,
+                json.dumps(job["roundtrip_direct"]) if job.get("roundtrip_direct") else None,
+                job.get("error"),
+                job.get("created_at", now),
+                now,
+            ),
+        )
+
+
+def load_jobs(ttl_seconds: int = 3600) -> dict:
+    import json
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=ttl_seconds)).isoformat()
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM jobs WHERE created_at >= ? ORDER BY created_at DESC",
+            (cutoff,),
+        ).fetchall()
+    result = {}
+    for row in rows:
+        result[row["job_id"]] = {
+            "status": row["status"],
+            "logs": json.loads(row["logs_json"]),
+            "matrix": json.loads(row["matrix_json"]) if row["matrix_json"] else None,
+            "return_matrix": json.loads(row["return_matrix_json"]) if row["return_matrix_json"] else None,
+            "roundtrip_direct": json.loads(row["roundtrip_direct_json"]) if row["roundtrip_direct_json"] else None,
+            "error": row["error"],
+            "created_at": row["created_at"],
+        }
+    return result
+
+
+def delete_old_jobs(ttl_seconds: int = 3600) -> int:
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=ttl_seconds)).isoformat()
+    with _connect() as conn:
+        cur = conn.execute("DELETE FROM jobs WHERE created_at < ?", (cutoff,))
+        return cur.rowcount
 
 
 def get_cached(origin: str, destination: str, flight_date: date) -> list[dict] | None:
