@@ -35,7 +35,7 @@ class SearchInput(BaseModel):
     date_from: date
     date_to: date
     max_connections: int = 1
-    max_duration_hours: int = 20
+    max_duration_hours: int = 36
     markup_percent: float = 0.0
 
     @field_validator("origins")

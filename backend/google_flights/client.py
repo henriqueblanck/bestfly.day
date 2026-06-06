@@ -74,7 +74,7 @@ class GoogleFlightsClient:
                     )
                 ],
             )
-            results = searcher.search(filters, top_n=10, currency="BRL")
+            results = searcher.search(filters, top_n=30, currency="BRL")
             if not results:
                 return None
 

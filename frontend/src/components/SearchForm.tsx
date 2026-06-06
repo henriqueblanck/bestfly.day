@@ -25,7 +25,7 @@ export function SearchForm({ onSubmit, loading }: Props) {
   const [dateFrom, setDateFrom] = useState(todayPlus(30));
   const [dateTo, setDateTo] = useState(todayPlus(33));
   const [maxConn, setMaxConn] = useState(1);
-  const [maxDur, setMaxDur] = useState(20);
+  const [maxDur, setMaxDur] = useState(36);
   const [markup, setMarkup] = useState(0);
 
   const days = dateFrom && dateTo ? Math.max(1, Math.round((new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / 86400000) + 1) : 1;
@@ -118,7 +118,7 @@ export function SearchForm({ onSubmit, loading }: Props) {
         </div>
         <div>
           <label style={labelStyle}>Duração máx (h)</label>
-          <input className="bf-input" type="number" min={5} max={36} value={maxDur} onChange={(e) => setMaxDur(+e.target.value)} />
+          <input className="bf-input" type="number" min={10} max={48} value={maxDur} onChange={(e) => setMaxDur(+e.target.value)} />
         </div>
         <div>
           <label style={labelStyle}>Markup %</label>
