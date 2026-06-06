@@ -6,6 +6,7 @@ Hub-by-hub execution with controlled parallelism:
 - A shared semaphore (CONCURRENT_SEARCHES) caps simultaneous fli calls
 - A per-request delay prevents burst spikes even within the semaphore
 - Cache hits (from SQLite) bypass the semaphore entirely (instant)
+- Direct flights (origin→dest without hub) searched in parallel after hub phase
 - Partial matrix emitted after each hub completes both legs
 """
 import asyncio
@@ -45,6 +46,12 @@ class MatrixEntry:
     intraeu_departure_time: str = ""
     longhaul_connections: int = 0
     intraeu_connections: int = 0
+    # Direct flight baseline
+    direct_price: Decimal | None = None
+    direct_airline: str = ""
+    direct_duration_minutes: int = 0
+    direct_connections: int = 0
+    direct_departure_time: str = ""
 
 
 PriceMatrix = dict[str, dict[str, dict[str, MatrixEntry]]]
@@ -77,17 +84,18 @@ class SplitTicketingEngine:
         date_range = _date_range(req.date_from, req.date_to)
         all_lh_slices: list[OfferSlice] = []
         all_eu_slices: list[OfferSlice] = []
+        all_direct_slices: list[OfferSlice] = []
 
-        total_searches = (
-            len(req.origins) * len(req.hubs) + len(req.hubs) * len(req.destinations)
-        ) * len(date_range)
+        hub_searches = (len(req.origins) * len(req.hubs) + len(req.hubs) * len(req.destinations)) * len(date_range)
+        direct_searches = len(req.origins) * len(req.destinations) * len(date_range)
+        total_searches = hub_searches + direct_searches
         self._emit(
-            f"[start] {total_searches} buscas · {len(req.hubs)} hub(s) · "
+            f"[start] {total_searches} buscas · {len(req.hubs)} hub(s) + direto · "
             f"{len(date_range)} dia(s) · {CONCURRENT_SEARCHES} em paralelo"
         )
 
         for hub in req.hubs:
-            # ── Long-haul searches for this hub (all in parallel, capped by semaphore) ──
+            # ── Long-haul searches for this hub ──
             lh_combos = [(origin, hub, d) for origin in req.origins for d in date_range]
             self._emit(f"[hub {hub}] long-haul: {len(lh_combos)} buscas")
             lh_results = await asyncio.gather(
@@ -125,16 +133,34 @@ class SplitTicketingEngine:
             if self._partial_fn:
                 partial = _build_matrix(
                     req.origins, req.destinations, req.hubs, date_range,
-                    all_lh_slices, all_eu_slices,
+                    all_lh_slices, all_eu_slices, all_direct_slices,
                     req.max_duration_hours, req.markup_fn,
                 )
                 self._partial_fn(partial)
                 entries = sum(len(dates) for dests in partial.values() for dates in dests.values())
                 self._emit(f"[hub {hub}] ✓ concluído · {entries} combos na matrix parcial")
 
+        # ── Direct flight searches (origin → dest, no hub) ──
+        direct_combos = [(origin, dest, d) for origin in req.origins for dest in req.destinations for d in date_range]
+        if direct_combos:
+            self._emit(f"[direto] {len(direct_combos)} buscas")
+            direct_results = await asyncio.gather(
+                *[
+                    self._throttled_fetch(origin, dest, d, req.max_connections, req.max_duration_hours)
+                    for origin, dest, d in direct_combos
+                ]
+            )
+            for (origin, dest, d), slices in zip(direct_combos, direct_results):
+                all_direct_slices.extend(slices)
+                if slices:
+                    best = min(slices, key=lambda s: s.price)
+                    self._emit(f"  ✓ {origin}→{dest} {d.strftime('%d/%m')} direto · {best.airline or '—'} · {_fmt_duration(best.duration_minutes)} · R${int(best.price)}")
+                else:
+                    self._emit(f"  – {origin}→{dest} {d.strftime('%d/%m')} sem voo direto")
+
         return _build_matrix(
             req.origins, req.destinations, req.hubs, date_range,
-            all_lh_slices, all_eu_slices,
+            all_lh_slices, all_eu_slices, all_direct_slices,
             req.max_duration_hours, req.markup_fn,
         )
 
@@ -146,7 +172,6 @@ class SplitTicketingEngine:
         max_connections: int,
         max_duration_hours: int,
     ) -> list[OfferSlice]:
-        # Serialise semaphore acquisition + delay to prevent bursts
         async with self._request_lock:
             await self._sem.acquire()
             await asyncio.sleep(INTER_REQUEST_DELAY)
@@ -185,7 +210,7 @@ class SplitTicketingEngine:
 
 def _build_matrix(
     origins, destinations, hubs, date_range,
-    lh_slices, eu_slices,
+    lh_slices, eu_slices, direct_slices,
     max_duration_hours, markup_fn,
 ) -> PriceMatrix:
     best_lh: dict[tuple, OfferSlice] = {}
@@ -200,21 +225,28 @@ def _build_matrix(
         if key not in best_eu or s.price < best_eu[key].price:
             best_eu[key] = s
 
+    best_direct: dict[tuple, OfferSlice] = {}
+    for s in direct_slices:
+        key = (s.origin, s.destination, s.departure_date)
+        if key not in best_direct or s.price < best_direct[key].price:
+            best_direct[key] = s
+
     matrix: PriceMatrix = {}
     for origin in origins:
         matrix[origin] = {}
         for dest in destinations:
             matrix[origin][dest] = {}
             for d in date_range:
-                best_entry = None
+                best_split: MatrixEntry | None = None
+
                 for hub in hubs:
                     lh = best_lh.get((origin, hub, d))
                     eu = best_eu.get((hub, dest, d))
                     if lh is None or eu is None:
                         continue
                     combined = markup_fn(lh.price + eu.price)
-                    if best_entry is None or combined < best_entry.total_price:
-                        best_entry = MatrixEntry(
+                    if best_split is None or combined < best_split.total_price:
+                        best_split = MatrixEntry(
                             total_price=combined,
                             longhaul_price=lh.price,
                             intraeu_price=eu.price,
@@ -231,8 +263,34 @@ def _build_matrix(
                             longhaul_connections=lh.connections,
                             intraeu_connections=eu.connections,
                         )
-                if best_entry:
-                    matrix[origin][dest][d.isoformat()] = best_entry
+
+                direct = best_direct.get((origin, dest, d))
+
+                if best_split is not None:
+                    if direct is not None:
+                        best_split.direct_price = direct.price
+                        best_split.direct_airline = direct.airline
+                        best_split.direct_duration_minutes = direct.duration_minutes
+                        best_split.direct_connections = direct.connections
+                        best_split.direct_departure_time = direct.departure_time
+                    matrix[origin][dest][d.isoformat()] = best_split
+
+                elif direct is not None:
+                    # No split-ticket found — show direct as fallback
+                    matrix[origin][dest][d.isoformat()] = MatrixEntry(
+                        total_price=markup_fn(direct.price),
+                        longhaul_price=Decimal(0),
+                        intraeu_price=Decimal(0),
+                        hub="DIRECT",
+                        currency=direct.currency,
+                        longhaul_offer_id="",
+                        intraeu_offer_id="",
+                        direct_price=direct.price,
+                        direct_airline=direct.airline,
+                        direct_duration_minutes=direct.duration_minutes,
+                        direct_connections=direct.connections,
+                        direct_departure_time=direct.departure_time,
+                    )
 
     return matrix
 

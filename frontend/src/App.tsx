@@ -29,10 +29,16 @@ export default function App() {
   function toggleTheme() {
     setTheme((t) => (t === "dark" ? "cream" : "dark"));
   }
+
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [matrix, setMatrix] = useState<Matrix | null>(null);
+  const [returnMatrix, setReturnMatrix] = useState<Matrix | null>(null);
+  const [tripType, setTripType] = useState<"oneway" | "roundtrip">("oneway");
   const [origins, setOrigins] = useState<string[]>([]);
+  const [destinations, setDestinations] = useState<string[]>([]);
   const [activeOrigin, setActiveOrigin] = useState<string | null>(null);
+  const [activeRetOrigin, setActiveRetOrigin] = useState<string | null>(null);
+  const [leg, setLeg] = useState<"ida" | "volta">("ida");
   const [error, setError] = useState<string | null>(null);
 
   const addLog = useCallback((line: LogLine) => {
@@ -49,6 +55,8 @@ export default function App() {
     if (raw.startsWith("  ✓")) return { kind: "ok", text: raw.trim() };
     if (raw.startsWith("  –")) return { kind: "info", text: raw.trim() };
     if (raw.startsWith("[hub")) return { kind: "ok", text: raw };
+    if (raw.startsWith("[direto]")) return { kind: "info", text: raw };
+    if (raw.startsWith("[volta]")) return { kind: "info", text: raw };
     if (raw.startsWith("[start]")) return { kind: "info", text: raw };
     if (raw.startsWith("→")) return { kind: "info", text: raw };
     return { kind: "info", text: raw };
@@ -58,13 +66,18 @@ export default function App() {
     setLoading(true);
     setError(null);
     setMatrix(null);
+    setReturnMatrix(null);
+    setLeg("ida");
     seenStatuses.current.clear();
+    setTripType(payload.trip_type);
     setLogs([
       { kind: "info", text: `${payload.origins.join(", ")} → ${payload.destinations.join(", ")}` },
-      { kind: "info", text: `Hubs: ${payload.hubs.join(", ")} · ${payload.date_from} → ${payload.date_to}` },
+      { kind: "info", text: `${payload.date_from} → ${payload.date_to}${payload.trip_type === "roundtrip" ? ` | volta: ${payload.return_date_from} → ${payload.return_date_to}` : ""}` },
     ]);
     setOrigins(payload.origins);
+    setDestinations(payload.destinations);
     setActiveOrigin(payload.origins[0]);
+    setActiveRetOrigin(payload.destinations[0]);
 
     try {
       const jobId = await startSearch(payload);
@@ -81,12 +94,13 @@ export default function App() {
         }
       });
 
-      const totalRoutes = Object.values(result).flatMap((d) =>
+      const totalRoutes = Object.values(result.matrix!).flatMap((d) =>
         Object.values(d).flatMap((dt) => Object.keys(dt))
       ).length;
 
       addLog({ kind: "ok", text: `✦ Matrix completa — ${totalRoutes} rotas com preço` });
-      setMatrix(result);
+      setMatrix(result.matrix);
+      setReturnMatrix(result.return_matrix);
     } catch (e: unknown) {
       if (e instanceof TimeoutWithPartialResult) {
         const entries = Object.values(e.matrix).flatMap((d) =>
@@ -95,8 +109,9 @@ export default function App() {
         if (entries > 0) {
           addLog({ kind: "info", text: `Tempo esgotado — exibindo ${entries} resultados parciais` });
           setMatrix(e.matrix);
+          setReturnMatrix(e.return_matrix);
         } else {
-          addLog({ kind: "error", text: "Tempo esgotado sem resultados. Tente reduzir hubs ou datas." });
+          addLog({ kind: "error", text: "Tempo esgotado sem resultados. Tente reduzir datas." });
           setError("Timeout sem resultados.");
         }
       } else {
@@ -113,6 +128,8 @@ export default function App() {
     return <Landing onStart={() => setView("search")} theme={theme} onToggleTheme={toggleTheme} />;
   }
 
+  const hasMatrix = matrix || returnMatrix;
+
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
 
@@ -125,7 +142,7 @@ export default function App() {
           bestfly<span style={{ color: "var(--muted)" }}>.day</span>
         </button>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {matrix && (
+          {hasMatrix && (
             <span style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--mono)" }}>
               <span style={{ color: "var(--green)" }}>●</span> matrix ready
             </span>
@@ -149,7 +166,7 @@ export default function App() {
         </div>
       </nav>
 
-      <div className={matrix ? "bf-app-panels" : ""} style={{ flex: 1, display: matrix ? undefined : "block", maxWidth: matrix ? "none" : 560, margin: matrix ? 0 : "40px auto", padding: matrix ? 0 : "0 24px", width: "100%" }}>
+      <div className={hasMatrix ? "bf-app-panels" : ""} style={{ flex: 1, display: hasMatrix ? undefined : "block", maxWidth: hasMatrix ? "none" : 560, margin: hasMatrix ? 0 : "40px auto", padding: hasMatrix ? 0 : "0 24px", width: "100%" }}>
 
         {/* Left panel: form + terminal */}
         <div className="bf-left-panel" style={{
@@ -157,8 +174,8 @@ export default function App() {
           display: "flex",
           flexDirection: "column",
           gap: 20,
-          background: matrix ? "var(--bg-card)" : "transparent",
-          overflowY: matrix ? "auto" : "visible",
+          background: hasMatrix ? "var(--bg-card)" : "transparent",
+          overflowY: hasMatrix ? "auto" : "visible",
         }}>
           <div style={{ fontSize: 11, color: "var(--muted2)", fontFamily: "var(--mono)", letterSpacing: 0.5, textTransform: "uppercase" }}>
             New search
@@ -182,30 +199,77 @@ export default function App() {
         </div>
 
         {/* Right panel: matrix */}
-        {matrix && (
+        {hasMatrix && (
           <div className="bf-right-panel" style={{ padding: 28, overflowX: "auto" }}>
-            {/* Origin tabs */}
-            {origins.length > 1 && (
+
+            {/* Leg tabs (roundtrip) */}
+            {tripType === "roundtrip" && (
               <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-                {origins.map((o) => (
-                  <button
-                    key={o}
-                    className={`chip ${activeOrigin === o ? "active" : ""}`}
-                    onClick={() => setActiveOrigin(o)}
-                    style={{ fontSize: 13, padding: "6px 16px" }}
-                  >
-                    from {o}
-                  </button>
-                ))}
+                <button
+                  className={`chip ${leg === "ida" ? "active" : ""}`}
+                  onClick={() => setLeg("ida")}
+                  style={{ fontSize: 13, padding: "6px 16px" }}
+                >
+                  ✈ Ida
+                </button>
+                <button
+                  className={`chip ${leg === "volta" ? "active" : ""}`}
+                  onClick={() => setLeg("volta")}
+                  style={{ fontSize: 13, padding: "6px 16px" }}
+                >
+                  ✈ Volta
+                </button>
               </div>
             )}
-            <PriceMatrix matrix={matrix} origin={activeOrigin ?? origins[0]} />
-          </div>
-        )}
 
-        {/* Empty state */}
-        {!matrix && !loading && logs.length === 0 && (
-          <div />
+            {/* Origin tabs */}
+            {leg === "ida" && matrix && (
+              <>
+                {origins.length > 1 && (
+                  <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                    {origins.map((o) => (
+                      <button
+                        key={o}
+                        className={`chip ${activeOrigin === o ? "active" : ""}`}
+                        onClick={() => setActiveOrigin(o)}
+                        style={{ fontSize: 13, padding: "6px 16px" }}
+                      >
+                        from {o}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <PriceMatrix matrix={matrix} origin={activeOrigin ?? origins[0]} />
+              </>
+            )}
+
+            {/* Return matrix */}
+            {leg === "volta" && returnMatrix && (
+              <>
+                {destinations.length > 1 && (
+                  <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                    {destinations.map((o) => (
+                      <button
+                        key={o}
+                        className={`chip ${activeRetOrigin === o ? "active" : ""}`}
+                        onClick={() => setActiveRetOrigin(o)}
+                        style={{ fontSize: 13, padding: "6px 16px" }}
+                      >
+                        from {o}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <PriceMatrix matrix={returnMatrix} origin={activeRetOrigin ?? destinations[0]} />
+              </>
+            )}
+
+            {leg === "volta" && !returnMatrix && (
+              <p style={{ color: "var(--muted)", fontFamily: "var(--mono)", fontSize: 13 }}>
+                Aguardando resultados de retorno…
+              </p>
+            )}
+          </div>
         )}
       </div>
     </div>

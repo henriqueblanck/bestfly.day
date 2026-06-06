@@ -1,9 +1,11 @@
 export interface SearchPayload {
   origins: string[];
   destinations: string[];
-  hubs: string[];
   date_from: string;
   date_to: string;
+  trip_type: "oneway" | "roundtrip";
+  return_date_from?: string;
+  return_date_to?: string;
   max_connections: number;
   max_duration_hours: number;
   markup_percent: number;
@@ -25,6 +27,12 @@ export interface MatrixEntry {
   intraeu_departure_time: string;
   longhaul_connections: number;
   intraeu_connections: number;
+  // Direct flight baseline
+  direct_price: number | null;
+  direct_airline: string;
+  direct_duration_minutes: number;
+  direct_connections: number;
+  direct_departure_time: string;
 }
 
 export type Matrix = Record<string, Record<string, Record<string, MatrixEntry>>>;
@@ -33,6 +41,7 @@ export interface JobResult {
   job_id: string;
   status: "queued" | "running" | "complete" | "failed";
   matrix: Matrix | null;
+  return_matrix: Matrix | null;
   logs: string[];
   error: string | null;
 }
@@ -58,9 +67,11 @@ export async function pollJob(jobId: string): Promise<JobResult> {
 
 export class TimeoutWithPartialResult extends Error {
   matrix: Matrix;
-  constructor(matrix: Matrix) {
+  return_matrix: Matrix | null;
+  constructor(matrix: Matrix, return_matrix: Matrix | null) {
     super("Search timed out — showing partial results");
     this.matrix = matrix;
+    this.return_matrix = return_matrix;
   }
 }
 
@@ -69,9 +80,10 @@ export async function waitForMatrix(
   onProgress: (status: string, newLogs: string[]) => void,
   intervalMs = 2000,
   timeoutMs = 480_000
-): Promise<Matrix> {
+): Promise<JobResult> {
   const deadline = Date.now() + timeoutMs;
   let lastMatrix: Matrix = {};
+  let lastReturnMatrix: Matrix | null = null;
   let seenLogs = 0;
   while (Date.now() < deadline) {
     const result = await pollJob(jobId);
@@ -79,9 +91,10 @@ export async function waitForMatrix(
     seenLogs = result.logs.length;
     onProgress(result.status, newLogs);
     if (result.matrix) lastMatrix = result.matrix;
-    if (result.status === "complete" && result.matrix) return result.matrix;
+    if (result.return_matrix) lastReturnMatrix = result.return_matrix;
+    if (result.status === "complete" && result.matrix) return result;
     if (result.status === "failed") throw new Error(result.error ?? "Search failed");
     await new Promise((r) => setTimeout(r, intervalMs));
   }
-  throw new TimeoutWithPartialResult(lastMatrix);
+  throw new TimeoutWithPartialResult(lastMatrix, lastReturnMatrix);
 }

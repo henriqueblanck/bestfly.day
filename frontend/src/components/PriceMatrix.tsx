@@ -13,6 +13,7 @@ const CITY_NAMES: Record<string, string> = {
   BUD: "Budapest", OPO: "Porto", SVQ: "Seville", MRS: "Marseille",
   NCE: "Nice", LYS: "Lyon", DUS: "Düsseldorf", HAM: "Hamburg",
   MUC: "Munich", ORY: "Paris Orly", LGW: "London Gatwick",
+  IST: "Istanbul", DOH: "Doha", DXB: "Dubai", AUH: "Abu Dhabi",
 };
 
 function cityName(iata: string): string {
@@ -172,8 +173,22 @@ function HoverTooltip({ state, origin }: { state: TooltipState; origin: string }
         <span style={{ color: "var(--green)", fontWeight: 700, fontSize: 14 }}>{fmtPrice(entry.total_price)}</span>
       </div>
 
+      {/* Direct comparison */}
+      {entry.direct_price != null && entry.hub !== "DIRECT" && (
+        <>
+          <div style={{ borderTop: "1px solid var(--line)", marginBottom: 10 }} />
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+            <span style={{ color: "var(--ink-3)", fontSize: 11 }}>Direto ({entry.direct_airline || "—"})</span>
+            <span style={{ color: "var(--ink-2)", fontSize: 11, textDecoration: "line-through" }}>{fmtPrice(entry.direct_price)}</span>
+          </div>
+          <div style={{ textAlign: "right", fontSize: 10, color: "var(--green)" }}>
+            economia {fmtPrice(entry.direct_price - entry.total_price)} ({Math.round((entry.direct_price - entry.total_price) / entry.direct_price * 100)}%)
+          </div>
+        </>
+      )}
+
       {/* CTA hint */}
-      <div style={{ color: "var(--ink-3)", fontSize: 10, textAlign: "center" }}>
+      <div style={{ color: "var(--ink-3)", fontSize: 10, textAlign: "center", marginTop: 8 }}>
         click → ver detalhes e reservar
       </div>
     </div>
@@ -269,19 +284,19 @@ function MatrixCell({
         </div>
       )}
 
-      {/* SPLIT badge */}
+      {/* Badge: SPLIT or DIRETO */}
       <div style={{
         position: "absolute",
         top: 4,
         right: 5,
         fontSize: 8,
         fontFamily: "var(--mono)",
-        color: fgColor,
-        opacity: 0.7,
+        color: hub === "DIRECT" ? "rgba(120,180,255,0.9)" : fgColor,
+        opacity: 0.8,
         letterSpacing: 0.3,
         lineHeight: 1,
       }}>
-        SPLIT
+        {hub === "DIRECT" ? "DIRETO" : "SPLIT"}
       </div>
 
       {/* Price */}
@@ -289,23 +304,49 @@ function MatrixCell({
         fontFamily: "var(--mono)",
         fontSize: 13,
         fontWeight: 700,
-        color: fgColor,
+        color: hub === "DIRECT" ? "rgba(120,180,255,1)" : fgColor,
         lineHeight: 1.2,
       }}>
         {fmtPrice(entry.total_price)}
       </div>
 
-      {/* Via hub */}
-      <div style={{
-        fontFamily: "var(--mono)",
-        fontSize: 9,
-        color: fgColor,
-        opacity: 0.65,
-        marginTop: 3,
-        lineHeight: 1,
-      }}>
-        via {hub}
-      </div>
+      {/* Via hub or direct savings */}
+      {hub !== "DIRECT" ? (
+        <div style={{
+          fontFamily: "var(--mono)",
+          fontSize: 9,
+          color: fgColor,
+          opacity: 0.65,
+          marginTop: 3,
+          lineHeight: 1,
+        }}>
+          via {hub}
+        </div>
+      ) : (
+        <div style={{
+          fontFamily: "var(--mono)",
+          fontSize: 9,
+          color: "rgba(120,180,255,0.6)",
+          marginTop: 3,
+          lineHeight: 1,
+        }}>
+          {entry.direct_airline || "—"}
+        </div>
+      )}
+
+      {/* Savings badge vs direct */}
+      {entry.direct_price != null && hub !== "DIRECT" && entry.direct_price > entry.total_price && (
+        <div style={{
+          fontFamily: "var(--mono)",
+          fontSize: 8,
+          color: "var(--green)",
+          marginTop: 2,
+          lineHeight: 1,
+          opacity: 0.85,
+        }}>
+          -{Math.round((entry.direct_price - entry.total_price) / entry.direct_price * 100)}% vs direto
+        </div>
+      )}
     </td>
   );
 }
@@ -525,75 +566,107 @@ function FlightDetailModal({
         {/* Legs */}
         <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 10 }}>
 
-          {/* Leg 1 */}
-          <div style={{
-            background: "var(--surface-2)",
-            borderRadius: "var(--r-md)",
-            padding: "14px 16px",
-            border: "1px solid var(--line)",
-          }}>
-            <div style={{ fontSize: 10, color: "var(--ink-3)", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 }}>
-              ① Transatlântico
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)", marginBottom: 4 }}>
-                  {origin}
-                  {entry.longhaul_departure_time ? (
-                    <span style={{ color: "var(--green)", marginLeft: 8 }}>{entry.longhaul_departure_time}</span>
-                  ) : null}
-                  {" → "}
-                  {hub}
-                </div>
-                <div style={{ fontSize: 11, color: "var(--ink-2)", marginBottom: 2 }}>
-                  {entry.longhaul_airline || "—"} · {fmtDuration(entry.longhaul_duration_minutes)}
-                </div>
-                <div style={{ fontSize: 10, color: "var(--ink-3)" }}>{stops(entry.longhaul_connections)}</div>
+          {hub === "DIRECT" ? (
+            /* Direct-only entry */
+            <div style={{
+              background: "var(--surface-2)",
+              borderRadius: "var(--r-md)",
+              padding: "14px 16px",
+              border: "1px solid rgba(120,180,255,0.3)",
+            }}>
+              <div style={{ fontSize: 10, color: "rgba(120,180,255,0.7)", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 }}>
+                Voo Direto
               </div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink)", flexShrink: 0 }}>
-                {fmtPrice(entry.longhaul_price)}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)", marginBottom: 4 }}>
+                    {origin}
+                    {entry.direct_departure_time ? (
+                      <span style={{ color: "rgba(120,180,255,1)", marginLeft: 8 }}>{entry.direct_departure_time}</span>
+                    ) : null}
+                    {" → "}{dest}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--ink-2)", marginBottom: 2 }}>
+                    {entry.direct_airline || "—"} · {fmtDuration(entry.direct_duration_minutes)}
+                  </div>
+                  <div style={{ fontSize: 10, color: "var(--ink-3)" }}>{stops(entry.direct_connections)}</div>
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "rgba(120,180,255,1)", flexShrink: 0 }}>
+                  {fmtPrice(entry.total_price)}
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <>
+              {/* Leg 1 */}
+              <div style={{
+                background: "var(--surface-2)",
+                borderRadius: "var(--r-md)",
+                padding: "14px 16px",
+                border: "1px solid var(--line)",
+              }}>
+                <div style={{ fontSize: 10, color: "var(--ink-3)", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 }}>
+                  ① Transatlântico
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)", marginBottom: 4 }}>
+                      {origin}
+                      {entry.longhaul_departure_time ? (
+                        <span style={{ color: "var(--green)", marginLeft: 8 }}>{entry.longhaul_departure_time}</span>
+                      ) : null}
+                      {" → "}{hub}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--ink-2)", marginBottom: 2 }}>
+                      {entry.longhaul_airline || "—"} · {fmtDuration(entry.longhaul_duration_minutes)}
+                    </div>
+                    <div style={{ fontSize: 10, color: "var(--ink-3)" }}>{stops(entry.longhaul_connections)}</div>
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink)", flexShrink: 0 }}>
+                    {fmtPrice(entry.longhaul_price)}
+                  </div>
+                </div>
+              </div>
 
-          {/* Hub connector */}
-          <div style={{ textAlign: "center", fontSize: 10, color: "var(--ink-3)", position: "relative" }}>
-            <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", whiteSpace: "nowrap" }}>
-              via {hubCity}
-            </div>
-            <div style={{ borderTop: "1px dashed var(--line)", margin: "8px 0" }} />
-          </div>
+              {/* Hub connector */}
+              <div style={{ textAlign: "center", fontSize: 10, color: "var(--ink-3)", position: "relative" }}>
+                <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", whiteSpace: "nowrap" }}>
+                  via {hubCity}
+                </div>
+                <div style={{ borderTop: "1px dashed var(--line)", margin: "8px 0" }} />
+              </div>
 
-          {/* Leg 2 */}
-          <div style={{
-            background: "var(--surface-2)",
-            borderRadius: "var(--r-md)",
-            padding: "14px 16px",
-            border: "1px solid var(--line)",
-          }}>
-            <div style={{ fontSize: 10, color: "var(--ink-3)", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 }}>
-              ② Intra-Europa
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)", marginBottom: 4 }}>
-                  {hub}
-                  {entry.intraeu_departure_time ? (
-                    <span style={{ color: "var(--green)", marginLeft: 8 }}>{entry.intraeu_departure_time}</span>
-                  ) : null}
-                  {" → "}
-                  {dest}
+              {/* Leg 2 */}
+              <div style={{
+                background: "var(--surface-2)",
+                borderRadius: "var(--r-md)",
+                padding: "14px 16px",
+                border: "1px solid var(--line)",
+              }}>
+                <div style={{ fontSize: 10, color: "var(--ink-3)", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 }}>
+                  ② Intra-Europa
                 </div>
-                <div style={{ fontSize: 11, color: "var(--ink-2)", marginBottom: 2 }}>
-                  {entry.intraeu_airline || "—"} · {fmtDuration(entry.intraeu_duration_minutes)}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)", marginBottom: 4 }}>
+                      {hub}
+                      {entry.intraeu_departure_time ? (
+                        <span style={{ color: "var(--green)", marginLeft: 8 }}>{entry.intraeu_departure_time}</span>
+                      ) : null}
+                      {" → "}{dest}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--ink-2)", marginBottom: 2 }}>
+                      {entry.intraeu_airline || "—"} · {fmtDuration(entry.intraeu_duration_minutes)}
+                    </div>
+                    <div style={{ fontSize: 10, color: "var(--ink-3)" }}>{stops(entry.intraeu_connections)}</div>
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink)", flexShrink: 0 }}>
+                    {fmtPrice(entry.intraeu_price)}
+                  </div>
                 </div>
-                <div style={{ fontSize: 10, color: "var(--ink-3)" }}>{stops(entry.intraeu_connections)}</div>
               </div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink)", flexShrink: 0 }}>
-                {fmtPrice(entry.intraeu_price)}
-              </div>
-            </div>
-          </div>
+            </>
+          )}
 
           {/* Total */}
           <div style={{
@@ -603,11 +676,36 @@ function FlightDetailModal({
             border: "1px solid var(--green)",
             borderRadius: "var(--r-md)",
           }}>
-            <span style={{ fontSize: 12, color: "var(--ink-2)" }}>Total combinado</span>
+            <span style={{ fontSize: 12, color: "var(--ink-2)" }}>
+              {entry.hub === "DIRECT" ? "Voo direto" : "Total split-ticket"}
+            </span>
             <span style={{ fontSize: 20, fontWeight: 700, color: "var(--green)" }}>
               {fmtPrice(entry.total_price)}
             </span>
           </div>
+
+          {/* Direct comparison */}
+          {entry.direct_price != null && entry.hub !== "DIRECT" && (
+            <div style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              padding: "10px 16px",
+              background: "var(--surface-2)",
+              border: "1px solid var(--line)",
+              borderRadius: "var(--r-md)",
+            }}>
+              <div>
+                <div style={{ fontSize: 11, color: "var(--ink-3)", marginBottom: 2 }}>
+                  vs. direto ({entry.direct_airline || "—"} · {fmtDuration(entry.direct_duration_minutes)})
+                </div>
+                <div style={{ fontSize: 10, color: "var(--green)", fontWeight: 600 }}>
+                  você economiza {fmtPrice(entry.direct_price - entry.total_price)} ({Math.round((entry.direct_price - entry.total_price) / entry.direct_price * 100)}%)
+                </div>
+              </div>
+              <span style={{ fontSize: 14, color: "var(--ink-3)", textDecoration: "line-through" }}>
+                {fmtPrice(entry.direct_price)}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Actions */}

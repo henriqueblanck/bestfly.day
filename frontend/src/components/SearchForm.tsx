@@ -7,8 +7,9 @@ interface Props {
   loading: boolean;
 }
 
-const HUB_OPTIONS = ["MAD", "LIS", "IST", "CDG", "AMS", "FRA", "ZRH", "FCO", "LHR", "MUC", "MXP", "DOH", "DXB"];
 const DATE_RANGE_DAYS = 10;
+const INTERNAL_HUBS = 8; // MAD, LIS, CDG, FRA, LHR, AMS, MUC, IST
+const MAX_COMBOS = 200;
 
 function todayPlus(n: number): string {
   const d = new Date();
@@ -16,47 +17,67 @@ function todayPlus(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-const MAX_COMBOS = 100;
-
 export function SearchForm({ onSubmit, loading }: Props) {
   const [originCodes, setOriginCodes] = useState<string[]>(["GRU", "BSB"]);
   const [destCodes, setDestCodes] = useState<string[]>(["BCN", "PRG", "VIE"]);
-  const [hubs, setHubs] = useState<string[]>(["MAD", "LIS"]);
+  const [tripType, setTripType] = useState<"oneway" | "roundtrip">("oneway");
   const [dateFrom, setDateFrom] = useState(todayPlus(30));
   const [dateTo, setDateTo] = useState(todayPlus(33));
+  const [retDateFrom, setRetDateFrom] = useState(todayPlus(44));
+  const [retDateTo, setRetDateTo] = useState(todayPlus(45));
   const [maxConn, setMaxConn] = useState(1);
   const [maxDur, setMaxDur] = useState(36);
   const [markup, setMarkup] = useState(0);
 
-  const days = dateFrom && dateTo ? Math.max(1, Math.round((new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / 86400000) + 1) : 1;
-  const longhaulSearches = originCodes.length * hubs.length * days;
-  const intraeUSearches = hubs.length * destCodes.length * days;
-  const totalSearches = longhaulSearches + intraeUSearches;
-  const overLimit = totalSearches > MAX_COMBOS || destCodes.length > 5;
+  const outDays = dateFrom && dateTo
+    ? Math.max(1, Math.round((new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / 86400000) + 1)
+    : 1;
+  const retDays = tripType === "roundtrip" && retDateFrom && retDateTo
+    ? Math.max(1, Math.round((new Date(retDateTo).getTime() - new Date(retDateFrom).getTime()) / 86400000) + 1)
+    : 0;
+  const totalDays = outDays + retDays;
 
-  function toggleHub(hub: string) {
-    setHubs((prev) =>
-      prev.includes(hub) ? prev.filter((h) => h !== hub) : [...prev, hub]
-    );
-  }
+  // (H*(origins+dests) + origins*dests) * total_days
+  const searchesPerDay = INTERNAL_HUBS * (originCodes.length + destCodes.length) + originCodes.length * destCodes.length;
+  const totalSearches = searchesPerDay * totalDays;
+  const overLimit = totalSearches > MAX_COMBOS || destCodes.length > 5;
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (overLimit || originCodes.length === 0 || destCodes.length === 0) return;
-    onSubmit({
+    const payload: SearchPayload = {
       origins: originCodes,
       destinations: destCodes,
-      hubs,
       date_from: dateFrom,
       date_to: dateTo,
+      trip_type: tripType,
       max_connections: maxConn,
       max_duration_hours: maxDur,
       markup_percent: markup,
-    });
+    };
+    if (tripType === "roundtrip") {
+      payload.return_date_from = retDateFrom;
+      payload.return_date_to = retDateTo;
+    }
+    onSubmit(payload);
   }
 
   return (
     <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+      {/* Trip type toggle */}
+      <div style={{ display: "flex", gap: 6 }}>
+        {(["oneway", "roundtrip"] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            className={`chip ${tripType === t ? "active" : ""}`}
+            onClick={() => setTripType(t)}
+          >
+            {t === "oneway" ? "Só ida" : "Ida e volta"}
+          </button>
+        ))}
+      </div>
 
       {/* Origins + Destinations */}
       <div className="bf-form-2col">
@@ -78,33 +99,27 @@ export function SearchForm({ onSubmit, loading }: Props) {
         />
       </div>
 
-      {/* Hubs */}
+      {/* Outbound dates */}
       <div>
-        <label style={labelStyle}>Hubs Transatlânticos</label>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-          {HUB_OPTIONS.map((hub) => (
-            <button
-              key={hub}
-              type="button"
-              className={`chip ${hubs.includes(hub) ? "active" : ""}`}
-              onClick={() => toggleHub(hub)}
-            >
-              {hub}
-            </button>
-          ))}
-        </div>
-        <span style={hintStyle}>escalas de conexão transatlântica</span>
-      </div>
-
-      {/* Date range */}
-      <div>
-        <label style={labelStyle}>Janela de Datas</label>
+        <label style={labelStyle}>{tripType === "roundtrip" ? "Ida — " : ""}Janela de Datas</label>
         <DateStrip
           from={dateFrom}
           to={dateTo}
           onChange={(f, t) => { setDateFrom(f); setDateTo(t); }}
         />
       </div>
+
+      {/* Return dates (roundtrip only) */}
+      {tripType === "roundtrip" && (
+        <div>
+          <label style={labelStyle}>Volta — Janela de Datas</label>
+          <DateStrip
+            from={retDateFrom}
+            to={retDateTo}
+            onChange={(f, t) => { setRetDateFrom(f); setRetDateTo(t); }}
+          />
+        </div>
+      )}
 
       {/* Advanced row */}
       <div className="bf-form-3col">
@@ -126,9 +141,15 @@ export function SearchForm({ onSubmit, loading }: Props) {
         </div>
       </div>
 
+      {/* Hubs info (read-only) */}
+      <div style={{ fontSize: 10, fontFamily: "var(--mono)", color: "var(--muted)", background: "var(--bg-elevated)", borderRadius: 6, padding: "6px 10px" }}>
+        hubs automáticos: MAD · LIS · CDG · FRA · LHR · AMS · MUC · IST + voo direto
+      </div>
+
+      {/* Counter */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, fontFamily: "var(--mono)", color: overLimit ? "var(--crimson)" : "var(--ink-3)", marginTop: 4, gap: 8 }}>
         <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {originCodes.length} ori · {hubs.length} hub · {destCodes.length} dest · {days} dias
+          {originCodes.length} ori · {destCodes.length} dest · {totalDays} dias{tripType === "roundtrip" ? " (ida+volta)" : ""}
         </span>
         <span style={{ flexShrink: 0 }}>
           <strong style={{ color: overLimit ? "var(--crimson)" : "var(--green)" }}>{totalSearches}</strong>/{MAX_COMBOS} buscas
@@ -226,11 +247,4 @@ const labelStyle: React.CSSProperties = {
   textTransform: "uppercase",
   marginBottom: 8,
   fontFamily: "var(--mono)",
-};
-
-const hintStyle: React.CSSProperties = {
-  display: "block",
-  fontSize: 11,
-  color: "var(--muted)",
-  marginTop: 5,
 };

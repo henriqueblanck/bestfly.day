@@ -5,11 +5,11 @@ import logging
 import time
 from datetime import date
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from config import settings
 from engine.split_ticketing import SearchRequest, SplitTicketingEngine
@@ -18,7 +18,12 @@ import db
 log = logging.getLogger(__name__)
 
 jobs: dict[str, dict[str, Any]] = {}
-_JOB_TTL_SECONDS = 3600  # purge completed/failed jobs after 1h
+_JOB_TTL_SECONDS = 3600
+
+# Best transatlantic hubs — chosen from discovery data (price + duration balance)
+INTERNAL_HUBS = ["MAD", "LIS", "CDG", "FRA", "LHR", "AMS", "MUC", "IST"]
+
+MAX_SEARCHES = 200
 
 app = FastAPI(title="BestFly — Flight Price Matrix")
 
@@ -37,9 +42,11 @@ app.add_middleware(
 class SearchInput(BaseModel):
     origins: list[str]
     destinations: list[str]
-    hubs: list[str] = ["MAD", "LIS"]
     date_from: date
     date_to: date
+    trip_type: Literal["oneway", "roundtrip"] = "oneway"
+    return_date_from: date | None = None
+    return_date_to: date | None = None
     max_connections: int = 1
     max_duration_hours: int = 36
     markup_percent: float = 0.0
@@ -58,30 +65,41 @@ class SearchInput(BaseModel):
             raise ValueError("Max 5 destinations")
         return [x.upper() for x in v]
 
-    @field_validator("date_to")
-    @classmethod
-    def combo_limit(cls, v, info):
-        data = info.data
-        if "date_from" in data:
-            days = (v - data["date_from"]).days + 1
-            if days > 10:
-                raise ValueError("Date range must be ≤ 10 days")
-            origins = len(data.get("origins", []))
-            hubs = len(data.get("hubs", []))
-            dests = len(data.get("destinations", []))
-            total = (origins * hubs + hubs * dests) * days
-            if total > 100:
-                raise ValueError(
-                    f"Total searches must be ≤ 100 "
-                    f"(({origins}×{hubs} + {hubs}×{dests}) × {days} = {total})"
-                )
-        return v
+    @model_validator(mode="after")
+    def combo_limit(self):
+        H = len(INTERNAL_HUBS)
+        origins = len(self.origins)
+        dests = len(self.destinations)
+
+        out_days = (self.date_to - self.date_from).days + 1
+        if out_days > 10:
+            raise ValueError("Date range must be ≤ 10 days")
+
+        ret_days = 0
+        if self.trip_type == "roundtrip":
+            if self.return_date_from is None:
+                raise ValueError("return_date_from is required for roundtrip")
+            ret_end = self.return_date_to or self.return_date_from
+            ret_days = (ret_end - self.return_date_from).days + 1
+            if ret_days > 10:
+                raise ValueError("Return date range must be ≤ 10 days")
+
+        # Formula: (H*(origins+dests) + origins*dests) * total_days
+        searches_per_day = H * (origins + dests) + origins * dests
+        total = searches_per_day * (out_days + ret_days)
+        if total > MAX_SEARCHES:
+            raise ValueError(
+                f"Total searches must be ≤ {MAX_SEARCHES} "
+                f"(got {total} = {searches_per_day}/day × {out_days + ret_days} days)"
+            )
+        return self
 
 
 class JobResponse(BaseModel):
     job_id: str
     status: str
     matrix: dict | None = None
+    return_matrix: dict | None = None
     logs: list[str] = []
     error: str | None = None
 
@@ -104,19 +122,40 @@ async def _run_search(job_id: str, req: SearchInput):
                 jobs[job_id]["matrix"] = serialized
 
         engine = SplitTicketingEngine(log_fn=on_log, partial_fn=on_partial)
-        search = SearchRequest(
+
+        # ── Outbound ──
+        outbound = SearchRequest(
             origins=req.origins,
             destinations=req.destinations,
-            hubs=req.hubs,
+            hubs=INTERNAL_HUBS,
             date_from=req.date_from,
             date_to=req.date_to,
             max_connections=req.max_connections,
             max_duration_hours=req.max_duration_hours,
             markup_fn=markup_fn,
         )
-        matrix = await engine.compute(search)
-        jobs[job_id]["status"] = "complete"
+        matrix = await engine.compute(outbound)
         jobs[job_id]["matrix"] = _serialize_matrix(matrix)
+
+        # ── Return (roundtrip) ──
+        if req.trip_type == "roundtrip" and req.return_date_from:
+            on_log("[volta] iniciando busca de retorno…")
+            ret_end = req.return_date_to or req.return_date_from
+            ret_engine = SplitTicketingEngine(log_fn=on_log, partial_fn=None)
+            return_req = SearchRequest(
+                origins=req.destinations,   # flipped
+                destinations=req.origins,   # flipped
+                hubs=INTERNAL_HUBS,
+                date_from=req.return_date_from,
+                date_to=ret_end,
+                max_connections=req.max_connections,
+                max_duration_hours=req.max_duration_hours,
+                markup_fn=markup_fn,
+            )
+            return_matrix = await ret_engine.compute(return_req)
+            jobs[job_id]["return_matrix"] = _serialize_matrix(return_matrix)
+
+        jobs[job_id]["status"] = "complete"
     except Exception as exc:
         log.exception("Search job %s failed", job_id)
         jobs[job_id]["status"] = "failed"
@@ -146,6 +185,11 @@ def _serialize_matrix(matrix) -> dict:
                     "intraeu_departure_time": entry.intraeu_departure_time,
                     "longhaul_connections": entry.longhaul_connections,
                     "intraeu_connections": entry.intraeu_connections,
+                    "direct_price": float(entry.direct_price) if entry.direct_price is not None else None,
+                    "direct_airline": entry.direct_airline,
+                    "direct_duration_minutes": entry.direct_duration_minutes,
+                    "direct_connections": entry.direct_connections,
+                    "direct_departure_time": entry.direct_departure_time,
                 }
     return out
 
@@ -153,6 +197,11 @@ def _serialize_matrix(matrix) -> dict:
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/hubs")
+async def get_hubs():
+    return {"hubs": INTERNAL_HUBS}
 
 
 @app.get("/api/history")
@@ -167,16 +216,11 @@ async def price_history(origin: str, destination: str, flight_date: str, days_ba
 
 
 _HUB_CANDIDATES = [
-    # Europa — principais
     "MAD", "LIS", "CDG", "AMS", "FRA", "MUC", "LHR", "FCO", "MXP", "ZRH",
-    # Europa — secundários
     "BCN", "ORY", "LGW", "DUS", "HAM", "BER", "VIE", "BRU", "DUB",
     "CPH", "ARN", "OSL", "HEL", "ATH", "WAW", "PRG", "BUD",
-    # Médio Oriente / Turquia (hubs transatlânticos relevantes)
     "IST", "DXB", "DOH", "AUH",
-    # África (conexões relevantes)
     "ADD", "NBO", "JNB",
-    # Américas (hubs de conexão)
     "MEX", "BOG", "PTY", "EZE", "SCL", "LIM",
 ]
 
@@ -228,7 +272,6 @@ async def discover_hubs(origin: str = "GRU", date: str | None = None):
 
         return await asyncio.to_thread(_search)
 
-    # Test 4 at a time to avoid hammering Google
     sem = asyncio.Semaphore(4)
 
     async def throttled(hub):
@@ -245,6 +288,7 @@ async def discover_hubs(origin: str = "GRU", date: str | None = None):
     return {
         "origin": origin,
         "date": test_date.isoformat(),
+        "internal_hubs": INTERNAL_HUBS,
         "found": len(ok),
         "hubs_with_flights": ok,
         "hubs_no_results": other,
@@ -253,14 +297,13 @@ async def discover_hubs(origin: str = "GRU", date: str | None = None):
 
 @app.get("/api/debug/fli")
 async def debug_fli(origin: str = "GRU", destination: str = "MAD", date: str | None = None):
-    """Quick diagnostic: test fli for one route. Returns raw results or error."""
+    """Quick diagnostic: test fli for one route."""
     from datetime import date as DateType, timedelta
     from fli.models import Airport, FlightSearchFilters, FlightSegment, MaxStops, PassengerInfo, TripType
     from fli.search.flights import SearchFlights
 
     test_date = DateType.fromisoformat(date) if date else DateType.today() + timedelta(days=30)
 
-    # Check Airport enum
     try:
         origin_ap = Airport[origin]
     except KeyError:
@@ -285,7 +328,7 @@ async def debug_fli(origin: str = "GRU", destination: str = "MAD", date: str | N
         try:
             results = searcher.search(filters, top_n=5, currency="BRL")
             if not results:
-                return {"ok": False, "error": "fli returned None/empty — likely Google rate-limit or IP block"}
+                return {"ok": False, "error": "fli returned None/empty"}
             return {
                 "ok": True,
                 "count": len(results),
@@ -300,7 +343,6 @@ async def debug_fli(origin: str = "GRU", destination: str = "MAD", date: str | N
         except Exception as e:
             return {"ok": False, "error": str(e), "type": type(e).__name__}
 
-    import asyncio
     return await asyncio.to_thread(_test)
 
 
@@ -318,7 +360,14 @@ def _purge_old_jobs() -> None:
 async def start_search(body: SearchInput, background: BackgroundTasks):
     _purge_old_jobs()
     job_id = str(uuid.uuid4())
-    jobs[job_id] = {"status": "queued", "matrix": None, "logs": [], "error": None, "created_at": time.time()}
+    jobs[job_id] = {
+        "status": "queued",
+        "matrix": None,
+        "return_matrix": None,
+        "logs": [],
+        "error": None,
+        "created_at": time.time(),
+    }
     background.add_task(_run_search, job_id, body)
     return JobResponse(job_id=job_id, status="queued")
 
@@ -332,6 +381,7 @@ async def get_result(job_id: str):
         job_id=job_id,
         status=job["status"],
         matrix=job.get("matrix"),
+        return_matrix=job.get("return_matrix"),
         logs=job.get("logs", []),
         error=job.get("error"),
     )
