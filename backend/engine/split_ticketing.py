@@ -1,9 +1,9 @@
 """
 Core split-ticketing engine.
 
-Step A: fire concurrent searches Origin → Hub (long-haul)
-Step B: fire concurrent searches Hub → Destination (intra-EU low-cost)
-Step C: combine cheapest A + cheapest B per (origin, destination, date)
+Hub-by-hub execution: for each hub, run all long-haul legs then all intra-EU
+legs, then emit a partial matrix. This way partial results are available as
+soon as the first hub is fully scanned.
 """
 import asyncio
 import logging
@@ -18,6 +18,8 @@ from google_flights.client import GoogleFlightsClient, OfferSlice
 log = logging.getLogger(__name__)
 
 MarkupFn = Callable[[Decimal], Decimal]
+LogFn = Callable[[str], None]
+PartialFn = Callable[["PriceMatrix"], None]
 
 
 @dataclass
@@ -54,50 +56,66 @@ SEARCH_DELAY_SECONDS = 2.0
 
 
 class SplitTicketingEngine:
-    def __init__(self):
+    def __init__(self, log_fn: LogFn | None = None, partial_fn: PartialFn | None = None):
         self._client = GoogleFlightsClient()
+        self._log_fn = log_fn or (lambda msg: log.info(msg))
+        self._partial_fn = partial_fn
+
+    def _emit(self, msg: str) -> None:
+        self._log_fn(msg)
 
     async def compute(self, req: SearchRequest) -> PriceMatrix:
         date_range = _date_range(req.date_from, req.date_to)
+        all_lh_slices: list[OfferSlice] = []
+        all_eu_slices: list[OfferSlice] = []
 
-        longhaul_combos = [
-            (origin, hub, d)
-            for origin in req.origins
-            for hub in req.hubs
-            for d in date_range
-        ]
-        intraeu_combos = [
-            (hub, dest, d)
-            for hub in req.hubs
-            for dest in req.destinations
-            for d in date_range
-        ]
+        total_searches = (len(req.origins) * len(req.hubs) + len(req.hubs) * len(req.destinations)) * len(date_range)
+        self._emit(f"[start] {total_searches} buscas · {len(req.hubs)} hub(s) · {len(date_range)} dia(s)")
 
-        total = len(longhaul_combos) + len(intraeu_combos)
-        log.info("Sequential: %d long-haul + %d intra-EU = %d searches", len(longhaul_combos), len(intraeu_combos), total)
+        for hub in req.hubs:
+            self._emit(f"[hub {hub}] long-haul: {len(req.origins) * len(date_range)} buscas")
 
-        lh_results = []
-        for i, (origin, hub, d) in enumerate(longhaul_combos):
-            result = await self._fetch(origin, hub, d, req.max_connections, req.max_duration_hours)
-            lh_results.append(result)
-            if i < len(longhaul_combos) - 1:
-                await asyncio.sleep(SEARCH_DELAY_SECONDS)
+            for origin in req.origins:
+                for d in date_range:
+                    self._emit(f"→ {origin} → {hub} · {d.strftime('%d/%m')}")
+                    slices = await self._fetch(origin, hub, d, req.max_connections, req.max_duration_hours)
+                    all_lh_slices.extend(slices)
+                    if slices:
+                        best = min(slices, key=lambda s: s.price)
+                        self._emit(f"  ✓ {best.airline or '—'} · {_fmt_duration(best.duration_minutes)} · R${int(best.price)}")
+                    else:
+                        self._emit(f"  – sem resultado")
+                    await asyncio.sleep(SEARCH_DELAY_SECONDS)
 
-        eu_results = []
-        for i, (hub, dest, d) in enumerate(intraeu_combos):
-            result = await self._fetch(hub, dest, d, req.max_connections, req.max_duration_hours)
-            eu_results.append(result)
-            if i < len(intraeu_combos) - 1:
-                await asyncio.sleep(SEARCH_DELAY_SECONDS)
+            self._emit(f"[hub {hub}] intra-EU: {len(req.destinations) * len(date_range)} buscas")
 
-        lh_slices = _flatten(lh_results)
-        eu_slices = _flatten(eu_results)
+            for dest in req.destinations:
+                for d in date_range:
+                    self._emit(f"→ {hub} → {dest} · {d.strftime('%d/%m')}")
+                    slices = await self._fetch(hub, dest, d, req.max_connections, req.max_duration_hours)
+                    all_eu_slices.extend(slices)
+                    if slices:
+                        best = min(slices, key=lambda s: s.price)
+                        self._emit(f"  ✓ {best.airline or '—'} · {_fmt_duration(best.duration_minutes)} · R${int(best.price)}")
+                    else:
+                        self._emit(f"  – sem resultado")
+                    await asyncio.sleep(SEARCH_DELAY_SECONDS)
+
+            # Emit partial matrix after each hub completes both legs
+            if self._partial_fn:
+                partial = _build_matrix(
+                    req.origins, req.destinations, req.hubs, date_range,
+                    all_lh_slices, all_eu_slices,
+                    req.max_duration_hours, req.markup_fn,
+                )
+                self._partial_fn(partial)
+                entries = sum(len(dates) for dests in partial.values() for dates in dests.values())
+                self._emit(f"[hub {hub}] ✓ concluído · {entries} combos na matrix parcial")
 
         return _build_matrix(
             req.origins, req.destinations, req.hubs, date_range,
-            lh_slices, eu_slices,
-            req.max_duration_hours,
-            req.markup_fn,
+            all_lh_slices, all_eu_slices,
+            req.max_duration_hours, req.markup_fn,
         )
 
     async def _fetch(
@@ -172,3 +190,7 @@ def _date_range(start: date, end: date) -> list[date]:
 
 def _flatten(nested):
     return [item for sublist in nested for item in sublist]
+
+
+def _fmt_duration(minutes: int) -> str:
+    return f"{minutes // 60}h{minutes % 60:02d}m"

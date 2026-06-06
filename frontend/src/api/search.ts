@@ -29,6 +29,7 @@ export interface JobResult {
   job_id: string;
   status: "queued" | "running" | "complete" | "failed";
   matrix: Matrix | null;
+  logs: string[];
   error: string | null;
 }
 
@@ -61,15 +62,18 @@ export class TimeoutWithPartialResult extends Error {
 
 export async function waitForMatrix(
   jobId: string,
-  onProgress: (status: string) => void,
+  onProgress: (status: string, newLogs: string[]) => void,
   intervalMs = 2000,
   timeoutMs = 240_000
 ): Promise<Matrix> {
   const deadline = Date.now() + timeoutMs;
   let lastMatrix: Matrix = {};
+  let seenLogs = 0;
   while (Date.now() < deadline) {
     const result = await pollJob(jobId);
-    onProgress(result.status);
+    const newLogs = result.logs.slice(seenLogs);
+    seenLogs = result.logs.length;
+    onProgress(result.status, newLogs);
     if (result.matrix) lastMatrix = result.matrix;
     if (result.status === "complete" && result.matrix) return result.matrix;
     if (result.status === "failed") throw new Error(result.error ?? "Search failed");

@@ -74,6 +74,7 @@ class JobResponse(BaseModel):
     job_id: str
     status: str
     matrix: dict | None = None
+    logs: list[str] = []
     error: str | None = None
 
 
@@ -85,7 +86,16 @@ async def _run_search(job_id: str, req: SearchInput):
             if req.markup_percent
             else (lambda p: p)
         )
-        engine = SplitTicketingEngine()
+
+        def on_log(msg: str):
+            jobs[job_id]["logs"].append(msg)
+
+        def on_partial(partial_matrix):
+            serialized = _serialize_matrix(partial_matrix)
+            if serialized:
+                jobs[job_id]["matrix"] = serialized
+
+        engine = SplitTicketingEngine(log_fn=on_log, partial_fn=on_partial)
         search = SearchRequest(
             origins=req.origins,
             destinations=req.destinations,
@@ -136,7 +146,7 @@ async def health():
 @app.post("/api/search", response_model=JobResponse, status_code=202)
 async def start_search(body: SearchInput, background: BackgroundTasks):
     job_id = str(uuid.uuid4())
-    jobs[job_id] = {"status": "queued", "matrix": None, "error": None}
+    jobs[job_id] = {"status": "queued", "matrix": None, "logs": [], "error": None}
     background.add_task(_run_search, job_id, body)
     return JobResponse(job_id=job_id, status="queued")
 
@@ -150,5 +160,6 @@ async def get_result(job_id: str):
         job_id=job_id,
         status=job["status"],
         matrix=job.get("matrix"),
+        logs=job.get("logs", []),
         error=job.get("error"),
     )

@@ -11,10 +11,9 @@ import type { LogLine } from "./components/TerminalLog";
 type View = "landing" | "search";
 type Theme = "dark" | "cream";
 
-const STATUS_MESSAGES: Record<string, LogLine> = {
-  queued:   { kind: "info", text: "Job queued. Firing concurrent batch requests…" },
-  running:  { kind: "info", text: "Batches in flight. Scanning Google Flights…" },
-  complete: { kind: "ok",   text: "All results collected. Building price matrix…" },
+const STATUS_ONCE: Record<string, LogLine> = {
+  queued:   { kind: "info", text: "Job na fila…" },
+  complete: { kind: "ok",   text: "Todos os resultados coletados. Montando matrix…" },
   failed:   { kind: "error", text: "Search failed." },
 };
 
@@ -40,36 +39,66 @@ export default function App() {
     setLogs((prev) => [...prev, line]);
   }, []);
 
+  const addLogs = useCallback((lines: LogLine[]) => {
+    setLogs((prev) => [...prev, ...lines]);
+  }, []);
+
+  const seenStatuses = new Set<string>();
+
+  function engineLogToLine(raw: string): LogLine {
+    if (raw.startsWith("  ✓")) return { kind: "ok", text: raw.trim() };
+    if (raw.startsWith("  –")) return { kind: "info", text: raw.trim() };
+    if (raw.startsWith("[hub")) return { kind: "ok", text: raw };
+    if (raw.startsWith("[start]")) return { kind: "info", text: raw };
+    if (raw.startsWith("→")) return { kind: "info", text: raw };
+    return { kind: "info", text: raw };
+  }
+
   async function handleSearch(payload: SearchPayload) {
     setLoading(true);
     setError(null);
     setMatrix(null);
-    setLogs([{ kind: "info", text: `Starting search: ${payload.origins.join(",")} → ${payload.destinations.join(",")}` }]);
+    seenStatuses.clear();
+    setLogs([
+      { kind: "info", text: `${payload.origins.join(", ")} → ${payload.destinations.join(", ")}` },
+      { kind: "info", text: `Hubs: ${payload.hubs.join(", ")} · ${payload.date_from} → ${payload.date_to}` },
+    ]);
     setOrigins(payload.origins);
     setActiveOrigin(payload.origins[0]);
 
-    addLog({ kind: "info", text: `Hubs: ${payload.hubs.join(", ")} · Dates: ${payload.date_from} → ${payload.date_to}` });
-    addLog({ kind: "info", text: `Firing Step A (long-haul) + Step B (intra-EU) concurrently…` });
-
     try {
       const jobId = await startSearch(payload);
-      addLog({ kind: "ok", text: `Job created: ${jobId.slice(0, 8)}…` });
+      addLog({ kind: "ok", text: `Job ${jobId.slice(0, 8)}… iniciado` });
 
-      const result = await waitForMatrix(jobId, (status) => {
-        const msg = STATUS_MESSAGES[status];
-        if (msg) addLog(msg);
+      const result = await waitForMatrix(jobId, (status, newLogs) => {
+        if (!seenStatuses.has(status)) {
+          seenStatuses.add(status);
+          const msg = STATUS_ONCE[status];
+          if (msg) addLog(msg);
+        }
+        if (newLogs.length > 0) {
+          addLogs(newLogs.map(engineLogToLine));
+        }
       });
 
       const totalRoutes = Object.values(result).flatMap((d) =>
         Object.values(d).flatMap((dt) => Object.keys(dt))
       ).length;
 
-      addLog({ kind: "ok", text: `Matrix complete. ${totalRoutes} routes priced. ✦` });
+      addLog({ kind: "ok", text: `✦ Matrix completa — ${totalRoutes} rotas com preço` });
       setMatrix(result);
     } catch (e: unknown) {
-      if (e instanceof TimeoutWithPartialResult && Object.keys(e.matrix).length > 0) {
-        addLog({ kind: "info", text: "Tempo esgotado — exibindo resultados parciais." });
-        setMatrix(e.matrix);
+      if (e instanceof TimeoutWithPartialResult) {
+        const entries = Object.values(e.matrix).flatMap((d) =>
+          Object.values(d).flatMap((dt) => Object.keys(dt))
+        ).length;
+        if (entries > 0) {
+          addLog({ kind: "info", text: `Tempo esgotado — exibindo ${entries} resultados parciais` });
+          setMatrix(e.matrix);
+        } else {
+          addLog({ kind: "error", text: "Tempo esgotado sem resultados. Tente reduzir hubs ou datas." });
+          setError("Timeout sem resultados.");
+        }
       } else {
         const msg = e instanceof Error ? e.message : String(e);
         addLog({ kind: "error", text: msg });
