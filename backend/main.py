@@ -201,42 +201,68 @@ async def _run_search(job_id: str, req: SearchInput):
             jobs[job_id]["return_matrix"] = serialized_ret
 
             # ── Round-trip direct baseline ──
-            # Search each outbound date × best return midpoint so TotalBar can
-            # compare the exact date the user has pinned, not just a midpoint.
+            # Grid search: all outbound dates × representative return dates,
+            # parallelised with a semaphore so we don't hammer the API.
             from datetime import timedelta as _td
             rt_client = GoogleFlightsClient()
-            ret_mid = req.return_date_from + (ret_end - req.return_date_from) // 2
-            out_days = (req.date_to - req.date_from).days + 1
-            all_out_dates = [req.date_from + _td(days=i) for i in range(out_days)]
+
+            out_days_n = (req.date_to - req.date_from).days + 1
+            ret_days_n = (ret_end - req.return_date_from).days + 1
+            all_out_dates = [req.date_from + _td(days=i) for i in range(out_days_n)]
+            # Up to 3 representative return dates: start, mid, end
+            ret_indices = sorted({0, ret_days_n // 2, ret_days_n - 1})
+            all_ret_dates = [req.return_date_from + _td(days=i) for i in ret_indices]
+
+            combos = [
+                (origin, dest, od, rd)
+                for origin in req.origins
+                for dest in req.destinations
+                for od in all_out_dates
+                for rd in all_ret_dates
+            ]
+            on_log(f"[roundtrip] {len(combos)} combinações ida×volta — paralelo…")
+
+            _rt_sem = asyncio.Semaphore(5)
+
+            async def _probe_rt(origin: str, dest: str, od, rd) -> tuple | None:
+                async with _rt_sem:
+                    try:
+                        offer = await rt_client.search_round_trip(
+                            origin, dest, od, rd, req.max_connections
+                        )
+                        if offer:
+                            on_log(f"  ✓ {origin}↔{dest} {od} R${int(offer.total_price)}")
+                            return (origin, dest, od.isoformat(), {
+                                "total": float(offer.total_price),
+                                "outbound": float(offer.outbound_price),
+                                "return": float(offer.return_price),
+                                "outbound_airline": offer.outbound_airline,
+                                "return_airline": offer.return_airline,
+                                "outbound_duration_minutes": offer.outbound_duration_minutes,
+                                "return_duration_minutes": offer.return_duration_minutes,
+                                "outbound_connections": offer.outbound_connections,
+                                "return_connections": offer.return_connections,
+                                "outbound_date": od.isoformat(),
+                                "return_date": rd.isoformat(),
+                            })
+                    except UnknownAirportError as e:
+                        on_log(f"  ✗ {e}")
+                    except Exception as exc:
+                        on_log(f"  ✗ roundtrip {origin}↔{dest} {od}: {exc}")
+                    return None
+
+            probe_results = await asyncio.gather(*[_probe_rt(*c) for c in combos])
 
             rt_results: dict[str, dict[str, Any]] = {}
-            for origin in req.origins:
-                for dest in req.destinations:
-                    for out_date in all_out_dates:
-                        on_log(f"[roundtrip-direto] {origin}↔{dest} {out_date}/{ret_mid}…")
-                        try:
-                            offer = await rt_client.search_round_trip(
-                                origin, dest, out_date, ret_mid, req.max_connections
-                            )
-                            if offer:
-                                rt_results.setdefault(origin, {}).setdefault(dest, {})[out_date.isoformat()] = {
-                                    "total": float(offer.total_price),
-                                    "outbound": float(offer.outbound_price),
-                                    "return": float(offer.return_price),
-                                    "outbound_airline": offer.outbound_airline,
-                                    "return_airline": offer.return_airline,
-                                    "outbound_duration_minutes": offer.outbound_duration_minutes,
-                                    "return_duration_minutes": offer.return_duration_minutes,
-                                    "outbound_connections": offer.outbound_connections,
-                                    "return_connections": offer.return_connections,
-                                    "outbound_date": out_date.isoformat(),
-                                    "return_date": ret_mid.isoformat(),
-                                }
-                                on_log(f"  ✓ roundtrip {origin}↔{dest} {out_date} R${int(offer.total_price)}")
-                        except UnknownAirportError as e:
-                            on_log(f"  ✗ {e}")
-                        except Exception as exc:
-                            on_log(f"  ✗ roundtrip erro: {exc}")
+            for r in probe_results:
+                if r is None:
+                    continue
+                origin, dest, out_iso, offer_data = r
+                # Keep the cheapest round-trip total for each outbound date
+                existing = rt_results.setdefault(origin, {}).setdefault(dest, {}).get(out_iso)
+                if existing is None or offer_data["total"] < existing["total"]:
+                    rt_results[origin][dest][out_iso] = offer_data
+
             if rt_results:
                 jobs[job_id]["roundtrip_direct"] = rt_results
 
