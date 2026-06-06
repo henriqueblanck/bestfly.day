@@ -50,6 +50,20 @@
 .animate-fade-up { animation: fade-in-up 0.5s ease forwards; }
 .animate-fade-in { animation: fade-in 0.4s ease forwards; }
 
+/* Subtle grid texture (dark themes only) */
+:not([data-theme="cream"]) .bg-grid {
+  background-image:
+    linear-gradient(rgba(255,255,255,0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.028) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+[data-theme="cream"] .bg-grid {
+  background-image:
+    linear-gradient(rgba(0,0,0,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+
 .pulse-cell {
   animation: pulse-green 2s ease-in-out infinite;
 }
@@ -236,6 +250,23 @@
   cursor: not-allowed;
 }
 
+/* Cream overrides — solid dark CTA */
+[data-theme="cream"] .btn-primary {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--bg);
+}
+[data-theme="cream"] .btn-primary:hover:not(:disabled) {
+  background: var(--ink-2);
+  border-color: var(--ink-2);
+  box-shadow: none;
+}
+[data-theme="cream"] .chip.active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--bg);
+}
+
 .btn-ghost {
   background: transparent;
   border: 1px solid var(--border);
@@ -357,5 +388,16 @@
     min-width: 44px !important;
     font-size: 10px !important;
     padding: 6px 2px !important;
+  }
+}
+
+/* ── Hero layout ────────────────────────────────────────────── */
+
+@media (max-width: 860px) {
+  .bf-hero {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    padding: 48px 24px !important;
+    gap: 40px !important;
   }
 }

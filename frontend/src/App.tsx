@@ -3,13 +3,72 @@ import "./styles.css";
 import { Landing } from "./components/Landing";
 import { SearchForm } from "./components/SearchForm";
 import { PriceMatrix } from "./components/PriceMatrix";
+import type { PinnedLeg } from "./components/PriceMatrix";
 import { TerminalLog } from "./components/TerminalLog";
 import { startSearch, waitForMatrix, TimeoutWithPartialResult } from "./api/search";
 import type { Matrix, SearchPayload } from "./api/search";
 import type { LogLine } from "./components/TerminalLog";
 
+function fmtPrice(v: number): string {
+  return "R$" + Math.round(v).toLocaleString("pt-BR");
+}
+
+function TotalBar({ ida, volta }: { ida: PinnedLeg | null; volta: PinnedLeg | null }) {
+  const total = (ida?.price ?? 0) + (volta?.price ?? 0);
+  const bothSelected = ida && volta;
+  return (
+    <div style={{
+      background: bothSelected ? "var(--green-bg)" : "var(--surface)",
+      border: `1px solid ${bothSelected ? "var(--green)" : "var(--line-2)"}`,
+      borderRadius: "var(--r-md)",
+      padding: "14px 18px",
+      marginBottom: 20,
+      fontFamily: "var(--mono)",
+      display: "flex",
+      alignItems: "center",
+      gap: 16,
+      flexWrap: "wrap",
+      animation: "fade-in 0.2s ease",
+    }}>
+      <div style={{ display: "flex", gap: 10, flex: 1, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ fontSize: 11, color: "var(--ink-3)" }}>IDA</span>
+        {ida ? (
+          <span style={{ fontSize: 13, color: "var(--ink)" }}>
+            {ida.origin}→{ida.dest} · {new Date(ida.date + "T12:00").toLocaleDateString("pt-BR", { day: "numeric", month: "short" })}
+            <span style={{ color: "var(--green)", fontWeight: 700, marginLeft: 6 }}>{fmtPrice(ida.price)}</span>
+          </span>
+        ) : (
+          <span style={{ fontSize: 12, color: "var(--ink-3)" }}>selecione uma célula →</span>
+        )}
+        <span style={{ color: "var(--line-2)", fontSize: 14 }}>+</span>
+        <span style={{ fontSize: 11, color: "var(--ink-3)" }}>VOLTA</span>
+        {volta ? (
+          <span style={{ fontSize: 13, color: "var(--ink)" }}>
+            {volta.origin}→{volta.dest} · {new Date(volta.date + "T12:00").toLocaleDateString("pt-BR", { day: "numeric", month: "short" })}
+            <span style={{ color: "var(--green)", fontWeight: 700, marginLeft: 6 }}>{fmtPrice(volta.price)}</span>
+          </span>
+        ) : (
+          <span style={{ fontSize: 12, color: "var(--ink-3)" }}>selecione uma célula →</span>
+        )}
+      </div>
+      {bothSelected && (
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div style={{ fontSize: 10, color: "var(--ink-3)", marginBottom: 2 }}>TOTAL IDA + VOLTA</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: "var(--green)", letterSpacing: "-0.03em" }}>
+            {fmtPrice(total)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 type View = "landing" | "search";
-type Theme = "dark" | "cream";
+type Theme = "terminal" | "mint" | "lime" | "cyan" | "cream";
+const THEME_CYCLE: Theme[] = ["terminal", "mint", "lime", "cyan", "cream"];
+const THEME_LABEL: Record<Theme, string> = {
+  terminal: "◑", mint: "mint", lime: "lime", cyan: "cyan", cream: "cream",
+};
 
 const STATUS_ONCE: Record<string, LogLine> = {
   queued:   { kind: "info", text: "Job na fila…" },
@@ -19,15 +78,25 @@ const STATUS_ONCE: Record<string, LogLine> = {
 
 export default function App() {
   const [view, setView] = useState<View>("landing");
-  const [theme, setTheme] = useState<Theme>("dark");
+  const [theme, setTheme] = useState<Theme>(() => {
+    try { return (localStorage.getItem("bf-theme") as Theme) || "terminal"; } catch { return "terminal"; }
+  });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-  }, [theme]);
+    applyTheme(theme);
+  }, []);
+
+  function applyTheme(t: Theme) {
+    document.documentElement.setAttribute("data-theme", t);
+    document.documentElement.style.colorScheme = t === "cream" ? "light" : "dark";
+    try { localStorage.setItem("bf-theme", t); } catch {}
+  }
 
   function toggleTheme() {
-    setTheme((t) => (t === "dark" ? "cream" : "dark"));
+    const next = THEME_CYCLE[(THEME_CYCLE.indexOf(theme) + 1) % THEME_CYCLE.length];
+    applyTheme(next);
+    setTheme(next);
   }
 
   const [logs, setLogs] = useState<LogLine[]>([]);
@@ -40,6 +109,8 @@ export default function App() {
   const [activeRetOrigin, setActiveRetOrigin] = useState<string | null>(null);
   const [leg, setLeg] = useState<"ida" | "volta">("ida");
   const [error, setError] = useState<string | null>(null);
+  const [pinnedIda, setPinnedIda] = useState<PinnedLeg | null>(null);
+  const [pinnedVolta, setPinnedVolta] = useState<PinnedLeg | null>(null);
 
   const addLog = useCallback((line: LogLine) => {
     setLogs((prev) => [...prev, line]);
@@ -68,6 +139,8 @@ export default function App() {
     setMatrix(null);
     setReturnMatrix(null);
     setLeg("ida");
+    setPinnedIda(null);
+    setPinnedVolta(null);
     seenStatuses.current.clear();
     setTripType(payload.trip_type);
     setLogs([
@@ -149,19 +222,20 @@ export default function App() {
           )}
           <button
             onClick={toggleTheme}
-            title={theme === "dark" ? "Switch to cream" : "Switch to dark"}
+            title="Next theme"
             style={{
               background: "none",
               border: "1px solid var(--border)",
               borderRadius: "var(--r-sm)",
               color: "var(--muted2)",
-              fontSize: 13,
+              fontSize: 12,
               padding: "4px 10px",
               cursor: "pointer",
               fontFamily: "var(--mono)",
+              letterSpacing: 0.3,
             }}
           >
-            {theme === "dark" ? "☀" : "◑"}
+            {THEME_LABEL[theme]} →
           </button>
         </div>
       </nav>
@@ -200,26 +274,39 @@ export default function App() {
 
         {/* Right panel: matrix */}
         {hasMatrix && (
-          <div className="bf-right-panel" style={{ padding: 28, overflowX: "auto" }}>
+          <div className="bf-right-panel bg-grid" style={{ padding: 28, overflowX: "auto" }}>
 
             {/* Leg tabs (roundtrip) */}
             {tripType === "roundtrip" && (
-              <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 20, alignItems: "center", flexWrap: "wrap" }}>
                 <button
                   className={`chip ${leg === "ida" ? "active" : ""}`}
                   onClick={() => setLeg("ida")}
                   style={{ fontSize: 13, padding: "6px 16px" }}
                 >
-                  ✈ Ida
+                  ✈ Ida {pinnedIda ? `· ${fmtPrice(pinnedIda.price)}` : ""}
                 </button>
                 <button
                   className={`chip ${leg === "volta" ? "active" : ""}`}
                   onClick={() => setLeg("volta")}
                   style={{ fontSize: 13, padding: "6px 16px" }}
                 >
-                  ✈ Volta
+                  ✈ Volta {pinnedVolta ? `· ${fmtPrice(pinnedVolta.price)}` : ""}
                 </button>
+                {(pinnedIda || pinnedVolta) && (
+                  <button
+                    onClick={() => { setPinnedIda(null); setPinnedVolta(null); }}
+                    style={{ fontSize: 11, color: "var(--ink-3)", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--mono)", padding: "4px 8px" }}
+                  >
+                    limpar
+                  </button>
+                )}
               </div>
+            )}
+
+            {/* Total bar (roundtrip) */}
+            {tripType === "roundtrip" && (pinnedIda || pinnedVolta) && (
+              <TotalBar ida={pinnedIda} volta={pinnedVolta} />
             )}
 
             {/* Origin tabs */}
@@ -239,7 +326,12 @@ export default function App() {
                     ))}
                   </div>
                 )}
-                <PriceMatrix matrix={matrix} origin={activeOrigin ?? origins[0]} />
+                <PriceMatrix
+                  matrix={matrix}
+                  origin={activeOrigin ?? origins[0]}
+                  onPin={(leg) => setPinnedIda(leg)}
+                  pinnedDate={pinnedIda?.date}
+                />
               </>
             )}
 
@@ -260,7 +352,12 @@ export default function App() {
                     ))}
                   </div>
                 )}
-                <PriceMatrix matrix={returnMatrix} origin={activeRetOrigin ?? destinations[0]} />
+                <PriceMatrix
+                  matrix={returnMatrix}
+                  origin={activeRetOrigin ?? destinations[0]}
+                  onPin={(leg) => setPinnedVolta(leg)}
+                  pinnedDate={pinnedVolta?.date}
+                />
               </>
             )}
 

@@ -49,12 +49,15 @@ class MatrixEntry:
     intraeu_departure_time: str = ""
     longhaul_connections: int = 0
     intraeu_connections: int = 0
-    # Direct flight baseline
+    # Direct flight baseline (cheapest single ticket)
     direct_price: Decimal | None = None
     direct_airline: str = ""
     direct_duration_minutes: int = 0
     direct_connections: int = 0
     direct_departure_time: str = ""
+    # Best split alternative (populated when direct wins)
+    split_price: Decimal | None = None
+    split_hub: str = ""
 
 
 PriceMatrix = dict[str, dict[str, dict[str, MatrixEntry]]]
@@ -358,17 +361,14 @@ def _build_matrix(
 
                 direct = best_direct.get((origin, dest, d))
 
-                if best_split is not None:
-                    if direct is not None:
-                        best_split.direct_price = direct.price
-                        best_split.direct_airline = direct.airline
-                        best_split.direct_duration_minutes = direct.duration_minutes
-                        best_split.direct_connections = direct.connections
-                        best_split.direct_departure_time = direct.departure_time
-                    matrix[origin][dest][d.isoformat()] = best_split
+                # Decide winner: whichever is cheapest — split or single ticket
+                direct_wins = (
+                    direct is not None
+                    and (best_split is None or markup_fn(direct.price) <= best_split.total_price)
+                )
 
-                elif direct is not None:
-                    matrix[origin][dest][d.isoformat()] = MatrixEntry(
+                if direct_wins:
+                    entry = MatrixEntry(
                         total_price=markup_fn(direct.price),
                         longhaul_price=Decimal(0),
                         intraeu_price=Decimal(0),
@@ -382,6 +382,20 @@ def _build_matrix(
                         direct_connections=direct.connections,
                         direct_departure_time=direct.departure_time,
                     )
+                    if best_split is not None:
+                        # Keep split info so UI can compare
+                        entry.split_price = best_split.total_price
+                        entry.split_hub = best_split.hub
+                    matrix[origin][dest][d.isoformat()] = entry
+
+                elif best_split is not None:
+                    if direct is not None:
+                        best_split.direct_price = direct.price
+                        best_split.direct_airline = direct.airline
+                        best_split.direct_duration_minutes = direct.duration_minutes
+                        best_split.direct_connections = direct.connections
+                        best_split.direct_departure_time = direct.departure_time
+                    matrix[origin][dest][d.isoformat()] = best_split
 
     return matrix
 

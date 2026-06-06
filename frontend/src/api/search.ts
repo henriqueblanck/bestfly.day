@@ -27,12 +27,15 @@ export interface MatrixEntry {
   intraeu_departure_time: string;
   longhaul_connections: number;
   intraeu_connections: number;
-  // Direct flight baseline
+  // Direct flight baseline (cheapest single ticket)
   direct_price: number | null;
   direct_airline: string;
   direct_duration_minutes: number;
   direct_connections: number;
   direct_departure_time: string;
+  // Best split alternative (populated when direct wins)
+  split_price?: number;
+  split_hub?: string;
 }
 
 export type Matrix = Record<string, Record<string, Record<string, MatrixEntry>>>;

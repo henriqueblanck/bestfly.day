@@ -32,24 +32,30 @@ function fmtPrice(value: number): string {
   return "R$" + Math.round(value).toLocaleString("pt-BR");
 }
 
-// ── Heat color (6-stop ramp) ──────────────────────────────────────────────────
-const HEAT_STOPS = [
-  [0x00, 0xFF, 0x88], // #00FF88
-  [0x7C, 0xF0, 0x6B], // #7CF06B
-  [0xD6, 0xE8, 0x4F], // #D6E84F
-  [0xFF, 0xC8, 0x3D], // #FFC83D
-  [0xFF, 0x8A, 0x4D], // #FF8A4D
-  [0xFF, 0x4D, 0x63], // #FF4D63
-];
+// ── Heat color (6-stop ramp, theme-aware) ────────────────────────────────────
+const HEAT_STOPS_BY_THEME: Record<string, number[][]> = {
+  terminal: [[0,255,136],[124,240,107],[214,232,79],[255,200,61],[255,138,77],[255,77,99]],
+  dark:     [[0,255,136],[124,240,107],[214,232,79],[255,200,61],[255,138,77],[255,77,99]],
+  mint:     [[47,227,163],[120,224,150],[214,224,100],[255,203,87],[255,140,90],[255,101,133]],
+  lime:     [[205,255,74],[214,232,79],[255,210,61],[255,170,60],[255,120,70],[255,107,90]],
+  cyan:     [[56,225,255],[80,220,200],[170,220,110],[255,200,77],[255,140,90],[255,92,138]],
+  cream:    [[31,168,100],[120,180,70],[224,169,46],[226,140,50],[214,90,70],[208,52,75]],
+};
+
+function getHeatStops(): number[][] {
+  const t = document.documentElement.getAttribute("data-theme") || "terminal";
+  return HEAT_STOPS_BY_THEME[t] ?? HEAT_STOPS_BY_THEME.terminal;
+}
 
 function heatRgb(ratio: number): [number, number, number] {
+  const stops = getHeatStops();
   const clamped = Math.max(0, Math.min(1, ratio));
-  const scaled = clamped * (HEAT_STOPS.length - 1);
+  const scaled = clamped * (stops.length - 1);
   const lo = Math.floor(scaled);
-  const hi = Math.min(lo + 1, HEAT_STOPS.length - 1);
+  const hi = Math.min(lo + 1, stops.length - 1);
   const t = scaled - lo;
-  const a = HEAT_STOPS[lo];
-  const b = HEAT_STOPS[hi];
+  const a = stops[lo];
+  const b = stops[hi];
   return [
     Math.round(a[0] + (b[0] - a[0]) * t),
     Math.round(a[1] + (b[1] - a[1]) * t),
@@ -89,17 +95,140 @@ interface CellInfo {
   ratio: number;
 }
 
+// ── Pin selection type ────────────────────────────────────────────────────────
+export interface PinnedLeg {
+  price: number;
+  dest: string;
+  date: string;
+  hub: string;
+  airline: string;
+  origin: string;
+}
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 interface Props {
   matrix: Matrix;
   origin: string;
   onShare?: (cell: ShareData) => void;
+  onPin?: (leg: PinnedLeg) => void;
+  pinnedDate?: string; // highlight pinned date
 }
 
 // ── Book helper ───────────────────────────────────────────────────────────────
-function bookCombo(origin: string, hub: string, dest: string) {
-  window.open(`https://www.google.com/travel/flights?q=${origin}+to+${hub}`, "_blank");
-  window.open(`https://www.google.com/travel/flights?q=${hub}+to+${dest}`, "_blank");
+function openBothLegs(origin: string, hub: string, dest: string, date: string) {
+  window.open(`https://www.google.com/travel/flights?q=${origin}+to+${hub}+on+${date}`, "_blank");
+  window.open(`https://www.google.com/travel/flights?q=${hub}+to+${dest}+on+${date}`, "_blank");
+}
+
+// ── Self-transfer warning ─────────────────────────────────────────────────────
+function BookOverlay({
+  origin, hub, dest,
+  onConfirm, onCancel,
+}: {
+  origin: string; hub: string; dest: string;
+  onConfirm: () => void; onCancel: () => void;
+}) {
+  const hubCity = cityName(hub);
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0, zIndex: 4000,
+        background: "rgba(0,0,0,0.78)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        animation: "fade-in 0.15s ease",
+        padding: 16,
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
+    >
+      <div style={{
+        width: "100%", maxWidth: 400,
+        background: "var(--surface)",
+        border: "1px solid var(--amber)",
+        borderRadius: "var(--r-lg)",
+        padding: "24px 24px 20px",
+        fontFamily: "var(--font)",
+        boxShadow: "0 24px 80px rgba(0,0,0,0.6)",
+      }}>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          <span style={{ fontSize: 20 }}>⚠️</span>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "var(--ink)" }}>
+              Você vai comprar 2 bilhetes separados
+            </div>
+            <div style={{ fontSize: 11, fontFamily: "var(--mono)", color: "var(--ink-3)", marginTop: 2 }}>
+              {origin} → {hub} + {hub} → {dest}
+            </div>
+          </div>
+        </div>
+
+        {/* Warnings */}
+        <div style={{
+          background: "rgba(255,200,61,0.08)",
+          border: "1px solid rgba(255,200,61,0.25)",
+          borderRadius: "var(--r-md)",
+          padding: "12px 14px",
+          marginBottom: 18,
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          fontSize: 13,
+          color: "var(--ink-2)",
+          lineHeight: 1.5,
+        }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <span style={{ flexShrink: 0 }}>✈</span>
+            <span>Se o primeiro voo atrasar, a <strong style={{ color: "var(--ink)" }}>segunda cia não vai esperar</strong> — você perderá esse bilhete.</span>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <span style={{ flexShrink: 0 }}>⏱</span>
+            <span>Escolha uma janela de <strong style={{ color: "var(--ink)" }}>mínimo 3h de layover</strong> em {hubCity}.</span>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <span style={{ flexShrink: 0 }}>🛡</span>
+            <span>Considere seguro viagem com <strong style={{ color: "var(--ink)" }}>cobertura de voo perdido</strong>.</span>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            onClick={onCancel}
+            style={{
+              flex: 1,
+              background: "transparent",
+              border: "1px solid var(--line-2)",
+              borderRadius: "var(--r-sm)",
+              color: "var(--ink-3)",
+              fontFamily: "var(--font)",
+              fontSize: 13,
+              padding: "10px 0",
+              cursor: "pointer",
+            }}
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirm}
+            style={{
+              flex: 2,
+              background: "var(--green)",
+              border: "none",
+              borderRadius: "var(--r-sm)",
+              color: "var(--on-accent)",
+              fontFamily: "var(--font)",
+              fontSize: 13,
+              fontWeight: 700,
+              padding: "10px 0",
+              cursor: "pointer",
+            }}
+          >
+            Entendi, abrir os dois voos →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
@@ -173,16 +302,30 @@ function HoverTooltip({ state, origin }: { state: TooltipState; origin: string }
         <span style={{ color: "var(--green)", fontWeight: 700, fontSize: 14 }}>{fmtPrice(entry.total_price)}</span>
       </div>
 
-      {/* Direct comparison */}
+      {/* When split wins: show direct as strikethrough comparison */}
       {entry.direct_price != null && entry.hub !== "DIRECT" && (
         <>
           <div style={{ borderTop: "1px solid var(--line)", marginBottom: 10 }} />
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-            <span style={{ color: "var(--ink-3)", fontSize: 11 }}>Direto ({entry.direct_airline || "—"})</span>
+            <span style={{ color: "var(--ink-3)", fontSize: 11 }}>Passagem única ({entry.direct_airline || "—"})</span>
             <span style={{ color: "var(--ink-2)", fontSize: 11, textDecoration: "line-through" }}>{fmtPrice(entry.direct_price)}</span>
           </div>
           <div style={{ textAlign: "right", fontSize: 10, color: "var(--green)" }}>
             economia {fmtPrice(entry.direct_price - entry.total_price)} ({Math.round((entry.direct_price - entry.total_price) / entry.direct_price * 100)}%)
+          </div>
+        </>
+      )}
+
+      {/* When direct wins: show split as alternative */}
+      {entry.hub === "DIRECT" && entry.split_price != null && entry.split_hub && (
+        <>
+          <div style={{ borderTop: "1px solid var(--line)", marginBottom: 10 }} />
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+            <span style={{ color: "var(--ink-3)", fontSize: 11 }}>Split via {entry.split_hub}</span>
+            <span style={{ color: "var(--ink-2)", fontSize: 11 }}>{fmtPrice(entry.split_price)}</span>
+          </div>
+          <div style={{ textAlign: "right", fontSize: 10, color: "var(--ink-3)" }}>
+            passagem única é {fmtPrice(entry.split_price - entry.total_price)} mais barata
           </div>
         </>
       )}
@@ -205,6 +348,8 @@ function MatrixCell({
   isMin,
   onHover,
   onClick,
+  onPin,
+  isPinned,
 }: {
   entry: MatrixEntry | undefined;
   dest: string;
@@ -214,6 +359,8 @@ function MatrixCell({
   isMin: boolean;
   onHover: (cell: CellInfo | null, x: number, y: number) => void;
   onClick: (cell: CellInfo) => void;
+  onPin?: (leg: PinnedLeg) => void;
+  isPinned?: boolean;
 }) {
   const hub = entry?.hub ?? "";
 
@@ -347,7 +494,136 @@ function MatrixCell({
           -{Math.round((entry.direct_price - entry.total_price) / entry.direct_price * 100)}% vs direto
         </div>
       )}
+
+      {/* Pin button */}
+      {onPin && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onPin({
+              price: entry.total_price,
+              dest,
+              date,
+              hub: entry.hub,
+              airline: entry.hub === "DIRECT" ? (entry.direct_airline || "—") : `${entry.longhaul_airline}+${entry.intraeu_airline}`,
+              origin,
+            });
+          }}
+          title={isPinned ? "Selecionado" : "Selecionar para cálculo total"}
+          style={{
+            position: "absolute",
+            bottom: 3,
+            left: 4,
+            background: isPinned ? "var(--green)" : "rgba(255,255,255,0.06)",
+            border: `1px solid ${isPinned ? "var(--green)" : "var(--line-2)"}`,
+            borderRadius: 4,
+            color: isPinned ? "var(--on-accent)" : "var(--ink-3)",
+            fontSize: 8,
+            padding: "1px 4px",
+            cursor: "pointer",
+            fontFamily: "var(--mono)",
+            lineHeight: 1.4,
+            transition: "all 0.15s",
+          }}
+        >
+          {isPinned ? "✓ sel" : "+ sel"}
+        </button>
+      )}
     </td>
+  );
+}
+
+// ── Direct flight sub-row ────────────────────────────────────────────────────
+function DirectSubRow({
+  destData,
+  dest,
+  dates,
+}: {
+  destData: Record<string, Record<string, MatrixEntry>>;
+  dest: string;
+  dates: string[];
+}) {
+  const hasAny = dates.some((d) => destData[dest]?.[d]?.direct_price != null);
+  if (!hasAny) return null;
+
+  function connLabel(n: number): string {
+    if (n === 0) return "direto";
+    return `${n}x`;
+  }
+
+  return (
+    <tr>
+      {/* Sticky label */}
+      <td style={{
+        position: "sticky",
+        left: 0,
+        background: "var(--bg)",
+        zIndex: 2,
+        padding: "2px 12px 6px 12px",
+        whiteSpace: "nowrap",
+        borderRight: "1px solid var(--line)",
+        verticalAlign: "middle",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 5, color: "var(--ink-3)", fontSize: 10, fontFamily: "var(--mono)" }}>
+          <span style={{ fontSize: 8, opacity: 0.6 }}>▸</span>
+          <span style={{ letterSpacing: 0.5 }}>voo direto</span>
+        </div>
+      </td>
+
+      {dates.map((d) => {
+        const entry = destData[dest]?.[d];
+        const dp = entry?.direct_price;
+        if (dp == null) {
+          return (
+            <td key={d} style={{
+              minWidth: 96,
+              padding: "4px 8px",
+              textAlign: "center",
+              color: "var(--ink-3)",
+              fontSize: 10,
+              fontFamily: "var(--mono)",
+            }}>
+              —
+            </td>
+          );
+        }
+        const dur = fmtDuration(entry.direct_duration_minutes);
+        const conn = connLabel(entry.direct_connections);
+        const airline = entry.direct_airline || "—";
+        const savings = entry.total_price < dp
+          ? Math.round((dp - entry.total_price) / dp * 100)
+          : null;
+
+        return (
+          <td key={d} style={{
+            minWidth: 96,
+            padding: "4px 8px",
+            borderRadius: 6,
+            background: "rgba(255,255,255,0.02)",
+            border: "1px solid var(--line)",
+            textAlign: "center",
+            fontFamily: "var(--mono)",
+            verticalAlign: "middle",
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-2)" }}>
+              {fmtPrice(dp)}
+            </div>
+            <div style={{ fontSize: 9, color: "var(--ink-3)", marginTop: 2, display: "flex", justifyContent: "center", gap: 5, flexWrap: "wrap" }}>
+              <span>{dur}</span>
+              <span style={{ opacity: 0.5 }}>·</span>
+              <span>{conn}</span>
+              <span style={{ opacity: 0.5 }}>·</span>
+              <span>{airline}</span>
+            </div>
+            {savings != null && savings > 0 && (
+              <div style={{ fontSize: 8, color: "var(--green)", marginTop: 2, opacity: 0.8 }}>
+                -{savings}% c/ split
+              </div>
+            )}
+          </td>
+        );
+      })}
+    </tr>
   );
 }
 
@@ -438,7 +714,7 @@ function BestDealCallout({
         )}
 
         <button
-          onClick={() => onDetail ? onDetail(cell) : bookCombo(origin, hub, dest)}
+          onClick={() => onDetail ? onDetail(cell) : openBothLegs(origin, hub, dest, date)}
           style={{
             background: "var(--green)",
             border: "none",
@@ -493,11 +769,13 @@ function FlightDetailModal({
   origin,
   onClose,
   onShare,
+  onBook,
 }: {
   cell: CellInfo;
   origin: string;
   onClose: () => void;
   onShare?: (d: ShareData) => void;
+  onBook?: (origin: string, hub: string, dest: string, date: string) => void;
 }) {
   const { entry, dest, date } = cell;
   const hub = entry.hub;
@@ -732,7 +1010,14 @@ function FlightDetailModal({
             </button>
           )}
           <button
-            onClick={() => { bookCombo(origin, hub, dest); onClose(); }}
+            onClick={() => {
+              if (hub !== "DIRECT") {
+                onBook ? onBook(origin, hub, dest, date) : openBothLegs(origin, hub, dest, date);
+              } else {
+                window.open(`https://www.google.com/travel/flights?q=${origin}+to+${dest}+on+${date}`, "_blank");
+              }
+              onClose();
+            }}
             style={{
               flex: 2,
               background: "var(--green)",
@@ -925,10 +1210,11 @@ function ShareCardModal({
 }
 
 // ── PriceMatrix (main export) ─────────────────────────────────────────────────
-export function PriceMatrix({ matrix, origin, onShare }: Props) {
+export function PriceMatrix({ matrix, origin, onShare, onPin, pinnedDate }: Props) {
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [shareData, setShareData] = useState<ShareData | null>(null);
   const [detailCell, setDetailCell] = useState<CellInfo | null>(null);
+  const [bookTarget, setBookTarget] = useState<{ origin: string; hub: string; dest: string; date: string } | null>(null);
 
   const destData = matrix[origin];
   if (!destData) {
@@ -1061,40 +1347,45 @@ export function PriceMatrix({ matrix, origin, onShare }: Props) {
             {destinations.map((dest) => {
               const city = cityName(dest);
               return (
-                <tr key={dest}>
-                  {/* Sticky dest label */}
-                  <td style={{
-                    position: "sticky",
-                    left: 0,
-                    background: "var(--bg)",
-                    zIndex: 2,
-                    padding: "4px 12px 4px 0",
-                    whiteSpace: "nowrap",
-                    borderRight: "1px solid var(--line)",
-                    verticalAlign: "middle",
-                  }}>
-                    <div style={{ fontWeight: 600, color: "var(--ink)", fontSize: 13 }}>{city}</div>
-                    <div style={{ color: "var(--ink-3)", fontSize: 10, marginTop: 2 }}>{dest}</div>
-                  </td>
+                <>
+                  <tr key={dest}>
+                    {/* Sticky dest label */}
+                    <td style={{
+                      position: "sticky",
+                      left: 0,
+                      background: "var(--bg)",
+                      zIndex: 2,
+                      padding: "4px 12px 4px 0",
+                      whiteSpace: "nowrap",
+                      borderRight: "1px solid var(--line)",
+                      verticalAlign: "middle",
+                    }}>
+                      <div style={{ fontWeight: 600, color: "var(--ink)", fontSize: 13 }}>{city}</div>
+                      <div style={{ color: "var(--ink-3)", fontSize: 10, marginTop: 2 }}>{dest}</div>
+                    </td>
 
-                  {dates.map((d) => {
-                    const entry = destData[dest]?.[d];
-                    const isMin = entry?.total_price === minP && allPrices.length > 0;
-                    return (
-                      <MatrixCell
-                        key={d}
-                        entry={entry}
-                        dest={dest}
-                        date={d}
-                        origin={origin}
-                        ratio={entry ? ratio(entry.total_price) : 0}
-                        isMin={!!isMin}
-                        onHover={handleHover}
-                        onClick={handleCellClick}
-                      />
-                    );
-                  })}
-                </tr>
+                    {dates.map((d) => {
+                      const entry = destData[dest]?.[d];
+                      const isMin = entry?.total_price === minP && allPrices.length > 0;
+                      return (
+                        <MatrixCell
+                          key={d}
+                          entry={entry}
+                          dest={dest}
+                          date={d}
+                          origin={origin}
+                          ratio={entry ? ratio(entry.total_price) : 0}
+                          isMin={!!isMin}
+                          onHover={handleHover}
+                          onClick={handleCellClick}
+                          onPin={onPin ? (leg) => onPin(leg) : undefined}
+                          isPinned={pinnedDate === d && !!entry}
+                        />
+                      );
+                    })}
+                  </tr>
+                  <DirectSubRow key={`${dest}-direct`} destData={destData} dest={dest} dates={dates} />
+                </>
               );
             })}
           </tbody>
@@ -1116,6 +1407,18 @@ export function PriceMatrix({ matrix, origin, onShare }: Props) {
           origin={origin}
           onClose={() => setDetailCell(null)}
           onShare={(d) => { setShareData(d); setDetailCell(null); }}
+          onBook={(o, h, d, dt) => { setBookTarget({ origin: o, hub: h, dest: d, date: dt }); setDetailCell(null); }}
+        />
+      )}
+
+      {/* Self-transfer warning overlay */}
+      {bookTarget && (
+        <BookOverlay
+          origin={bookTarget.origin}
+          hub={bookTarget.hub}
+          dest={bookTarget.dest}
+          onConfirm={() => { openBothLegs(bookTarget.origin, bookTarget.hub, bookTarget.dest, bookTarget.date); setBookTarget(null); }}
+          onCancel={() => setBookTarget(null)}
         />
       )}
 

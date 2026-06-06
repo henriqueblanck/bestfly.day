@@ -8,7 +8,7 @@ interface Props {
 }
 
 const DATE_RANGE_DAYS = 10;
-const HUB_CANDIDATES = 24; // pool probed in phase 1 (server-side)
+const HUB_CANDIDATES = 28; // pool probed in phase 1 (server-side)
 const TOP_K = 5;           // typical hubs selected after probe
 const MAX_COMBOS = 200;
 
@@ -132,6 +132,7 @@ export function SearchForm({ onSubmit, loading }: Props) {
             <option value={0}>Direto</option>
             <option value={1}>1 escala</option>
             <option value={2}>2 escalas</option>
+            <option value={3}>3 escalas</option>
           </select>
         </div>
         <div>
@@ -146,7 +147,7 @@ export function SearchForm({ onSubmit, loading }: Props) {
 
       {/* Hubs info (read-only) */}
       <div style={{ fontSize: 10, fontFamily: "var(--mono)", color: "var(--muted)", background: "var(--bg-elevated)", borderRadius: 6, padding: "6px 10px" }}>
-        descoberta automática em 24 candidatos: Europa · Oriente Médio · MEX · PTY · MIA + voo direto
+        descoberta automática em 28 candidatos: Europa · Oriente Médio · YUL · YYZ · JFK · ORD · MEX · PTY · MIA + voo direto
       </div>
 
       {/* Counter */}
@@ -183,40 +184,42 @@ function DateStrip({ from, to, onChange }: { from: string; to: string; onChange:
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
-      <div className="bf-date-strip" style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4 }}>
+      <div className="bf-date-strip" style={{ display: "flex", gap: 5, overflowX: "auto", paddingBottom: 4 }}>
         {days.map((d) => {
           const isFrom = d === from;
           const isTo = d === to;
           const inRange = d >= from && d <= to;
-          const label = new Date(d + "T12:00:00").toLocaleDateString("en", { month: "short", day: "numeric" });
+          const edge = isFrom || isTo;
+          const dt = new Date(d + "T12:00:00");
+          const dow = dt.toLocaleDateString("pt-BR", { weekday: "short" }).slice(0, 3).toUpperCase();
+          const day = dt.getDate();
+          const mon = dt.toLocaleDateString("pt-BR", { month: "short" }).slice(0, 3);
+          const weekend = dt.getDay() === 0 || dt.getDay() === 6;
           return (
             <button
               key={d}
               type="button"
               onClick={() => {
-                if (!from || (from && to)) {
-                  onChange(d, "");
-                } else if (d < from) {
-                  onChange(d, from);
-                } else {
-                  onChange(from, d);
-                }
+                if (!from || (from && to)) onChange(d, "");
+                else if (d < from) onChange(d, from);
+                else onChange(from, d);
               }}
               style={{
-                minWidth: 54,
-                padding: "8px 4px",
-                borderRadius: 8,
-                border: `1px solid ${isFrom || isTo ? "var(--green)" : inRange ? "var(--border-bright)" : "var(--border)"}`,
-                background: isFrom || isTo ? "var(--green-bg)" : inRange ? "rgba(255,255,255,0.02)" : "var(--bg-elevated)",
-                color: isFrom || isTo ? "var(--green)" : inRange ? "var(--text)" : "var(--muted2)",
-                fontSize: 11,
-                fontFamily: "var(--mono)",
+                minWidth: 48,
+                flexShrink: 0,
+                padding: "10px 4px",
+                borderRadius: 9,
+                border: `1px solid ${edge ? "var(--green)" : inRange ? "var(--border-bright)" : "var(--border)"}`,
+                background: edge ? "var(--green)" : inRange ? "var(--green-bg)" : "var(--bg-elevated)",
+                color: edge ? "var(--on-accent)" : inRange ? "var(--green)" : weekend ? "var(--ink-2)" : "var(--text)",
                 cursor: "pointer",
                 textAlign: "center",
-                transition: "all 0.15s",
+                transition: "all 0.14s",
               }}
             >
-              {label}
+              <div style={{ fontSize: 9, fontFamily: "var(--mono)", opacity: 0.7, textTransform: "uppercase", letterSpacing: 0.3 }}>{dow}</div>
+              <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-0.02em", margin: "2px 0", fontVariantNumeric: "tabular-nums" }}>{day}</div>
+              <div style={{ fontSize: 9, fontFamily: "var(--mono)", opacity: 0.65 }}>{mon}</div>
             </button>
           );
         })}

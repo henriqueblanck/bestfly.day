@@ -28,7 +28,9 @@ HUB_CANDIDATES = [
     "BCN", "VIE", "BRU", "DUB", "IST", "ATH",
     # Middle East — strong global hubs
     "DOH", "DXB", "AUH",
-    # Americas — non-obvious intermediate connections
+    # North America — Air Canada / alliance connections (YUL/YYZ cheaper than direct)
+    "YUL", "YYZ", "JFK", "ORD",
+    # Latin America / Caribbean — non-obvious intermediate connections
     "MEX", "PTY", "BOG", "MIA",
     # Africa
     "ADD",
