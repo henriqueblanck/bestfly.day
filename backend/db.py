@@ -32,11 +32,17 @@ def init_db() -> None:
                 duration_minutes INTEGER,
                 connections     INTEGER,
                 offer_id        TEXT,
+                departure_time  TEXT,
                 searched_at     TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_route
                 ON price_cache(origin, destination, flight_date, searched_at);
         """)
+        # Migrate existing DBs that predate the departure_time column
+        try:
+            conn.execute("ALTER TABLE price_cache ADD COLUMN departure_time TEXT")
+        except Exception:
+            pass
     log.info("DB initialised at %s", DB_PATH)
 
 
@@ -71,8 +77,8 @@ def save_slices(
             """
             INSERT INTO price_cache
                 (origin, destination, flight_date, price, currency, airline,
-                 duration_minutes, connections, offer_id, searched_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 duration_minutes, connections, offer_id, departure_time, searched_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -85,6 +91,7 @@ def save_slices(
                     s.get("duration_minutes", 0),
                     s.get("connections", 0),
                     s.get("offer_id", ""),
+                    s.get("departure_time", ""),
                     now,
                 )
                 for s in slices

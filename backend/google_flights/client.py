@@ -39,6 +39,7 @@ class OfferSlice(BaseModel):
     duration_minutes: int
     connections: int
     airline: str = ""
+    departure_time: str = ""
 
 
 def _rows_to_slices(rows: list[dict], origin: str, destination: str, departure_date: date) -> list[OfferSlice]:
@@ -53,6 +54,7 @@ def _rows_to_slices(rows: list[dict], origin: str, destination: str, departure_d
             duration_minutes=r.get("duration_minutes") or 0,
             connections=r.get("connections") or 0,
             airline=r.get("airline") or "",
+            departure_time=r.get("departure_time") or "",
         )
         for r in rows
     ]
@@ -107,8 +109,16 @@ class GoogleFlightsClient:
                 if r.price is None:
                     continue
                 airline = ""
+                dep_time = ""
                 if r.legs:
-                    airline = r.legs[0].airline.value if r.legs[0].airline else ""
+                    leg0 = r.legs[0]
+                    airline = leg0.airline.value if leg0.airline else ""
+                    raw_dt = getattr(leg0, "departure_time", None) or getattr(r, "departure_time", None)
+                    if raw_dt is not None:
+                        try:
+                            dep_time = raw_dt.strftime("%H:%M") if hasattr(raw_dt, "strftime") else str(raw_dt)[:5]
+                        except Exception:
+                            pass
                 slices.append(
                     OfferSlice(
                         origin=origin,
@@ -120,6 +130,7 @@ class GoogleFlightsClient:
                         duration_minutes=r.duration or 0,
                         connections=r.stops or 0,
                         airline=airline,
+                        departure_time=dep_time,
                     )
                 )
             return slices or None

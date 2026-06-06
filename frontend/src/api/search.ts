@@ -21,6 +21,10 @@ export interface MatrixEntry {
   intraeu_airline: string;
   longhaul_duration_minutes: number;
   intraeu_duration_minutes: number;
+  longhaul_departure_time: string;
+  intraeu_departure_time: string;
+  longhaul_connections: number;
+  intraeu_connections: number;
 }
 
 export type Matrix = Record<string, Record<string, Record<string, MatrixEntry>>>;

@@ -174,7 +174,7 @@ function HoverTooltip({ state, origin }: { state: TooltipState; origin: string }
 
       {/* CTA hint */}
       <div style={{ color: "var(--ink-3)", fontSize: 10, textAlign: "center" }}>
-        click → opens both legs in 2 tabs ↗
+        click → ver detalhes e reservar
       </div>
     </div>
   );
@@ -314,9 +314,11 @@ function MatrixCell({
 function BestDealCallout({
   cell,
   onShare,
+  onDetail,
 }: {
   cell: CellInfo;
   onShare?: (data: ShareData) => void;
+  onDetail?: (cell: CellInfo) => void;
 }) {
   const { entry, dest, date, origin } = cell;
   const hub = entry.hub;
@@ -395,7 +397,7 @@ function BestDealCallout({
         )}
 
         <button
-          onClick={() => bookCombo(origin, hub, dest)}
+          onClick={() => onDetail ? onDetail(cell) : bookCombo(origin, hub, dest)}
           style={{
             background: "var(--green)",
             border: "none",
@@ -411,7 +413,7 @@ function BestDealCallout({
           onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.85"; }}
           onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
         >
-          Book this combo
+          Ver detalhes →
         </button>
       </div>
     </div>
@@ -435,6 +437,221 @@ function HeatBar({ filledRatio }: { filledRatio: number }) {
           }}
         />
       ))}
+    </div>
+  );
+}
+
+// ── Flight Detail Modal ───────────────────────────────────────────────────────
+function stops(n: number): string {
+  if (n === 0) return "direto";
+  return n === 1 ? "1 escala" : `${n} escalas`;
+}
+
+function FlightDetailModal({
+  cell,
+  origin,
+  onClose,
+  onShare,
+}: {
+  cell: CellInfo;
+  origin: string;
+  onClose: () => void;
+  onShare?: (d: ShareData) => void;
+}) {
+  const { entry, dest, date } = cell;
+  const hub = entry.hub;
+  const hubCity = cityName(hub);
+  const destCity = cityName(dest);
+  const originCity = cityName(origin);
+
+  const fmtDate = new Date(date + "T12:00:00").toLocaleDateString("pt-BR", {
+    weekday: "short", day: "numeric", month: "short",
+  });
+
+  const shareData: ShareData = {
+    origin, dest, date,
+    total: entry.total_price, hub,
+    lhAirline: entry.longhaul_airline,
+    euAirline: entry.intraeu_airline,
+    lhPrice: entry.longhaul_price,
+    euPrice: entry.intraeu_price,
+    currency: entry.currency,
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0,
+        background: "rgba(0,0,0,0.72)",
+        zIndex: 3000,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        animation: "fade-in 0.15s ease",
+        padding: 16,
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div style={{
+        width: "100%", maxWidth: 420,
+        background: "var(--surface)",
+        border: "1px solid var(--line-2)",
+        borderRadius: "var(--r-lg)",
+        fontFamily: "var(--mono)",
+        overflow: "hidden",
+        boxShadow: "0 24px 80px rgba(0,0,0,0.6)",
+      }}>
+
+        {/* Header */}
+        <div style={{
+          padding: "18px 20px 16px",
+          borderBottom: "1px solid var(--line)",
+          display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+        }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "var(--ink)", marginBottom: 3 }}>
+              {originCity} → {destCity}
+            </div>
+            <div style={{ fontSize: 11, color: "var(--ink-3)" }}>
+              {fmtDate} · {entry.currency}
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", fontSize: 18, lineHeight: 1, padding: 4 }}
+          >
+            ×
+          </button>
+        </div>
+
+        {/* Legs */}
+        <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 10 }}>
+
+          {/* Leg 1 */}
+          <div style={{
+            background: "var(--surface-2)",
+            borderRadius: "var(--r-md)",
+            padding: "14px 16px",
+            border: "1px solid var(--line)",
+          }}>
+            <div style={{ fontSize: 10, color: "var(--ink-3)", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 }}>
+              ① Transatlântico
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)", marginBottom: 4 }}>
+                  {origin}
+                  {entry.longhaul_departure_time ? (
+                    <span style={{ color: "var(--green)", marginLeft: 8 }}>{entry.longhaul_departure_time}</span>
+                  ) : null}
+                  {" → "}
+                  {hub}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--ink-2)", marginBottom: 2 }}>
+                  {entry.longhaul_airline || "—"} · {fmtDuration(entry.longhaul_duration_minutes)}
+                </div>
+                <div style={{ fontSize: 10, color: "var(--ink-3)" }}>{stops(entry.longhaul_connections)}</div>
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink)", flexShrink: 0 }}>
+                {fmtPrice(entry.longhaul_price)}
+              </div>
+            </div>
+          </div>
+
+          {/* Hub connector */}
+          <div style={{ textAlign: "center", fontSize: 10, color: "var(--ink-3)", position: "relative" }}>
+            <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", whiteSpace: "nowrap" }}>
+              via {hubCity}
+            </div>
+            <div style={{ borderTop: "1px dashed var(--line)", margin: "8px 0" }} />
+          </div>
+
+          {/* Leg 2 */}
+          <div style={{
+            background: "var(--surface-2)",
+            borderRadius: "var(--r-md)",
+            padding: "14px 16px",
+            border: "1px solid var(--line)",
+          }}>
+            <div style={{ fontSize: 10, color: "var(--ink-3)", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 }}>
+              ② Intra-Europa
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)", marginBottom: 4 }}>
+                  {hub}
+                  {entry.intraeu_departure_time ? (
+                    <span style={{ color: "var(--green)", marginLeft: 8 }}>{entry.intraeu_departure_time}</span>
+                  ) : null}
+                  {" → "}
+                  {dest}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--ink-2)", marginBottom: 2 }}>
+                  {entry.intraeu_airline || "—"} · {fmtDuration(entry.intraeu_duration_minutes)}
+                </div>
+                <div style={{ fontSize: 10, color: "var(--ink-3)" }}>{stops(entry.intraeu_connections)}</div>
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink)", flexShrink: 0 }}>
+                {fmtPrice(entry.intraeu_price)}
+              </div>
+            </div>
+          </div>
+
+          {/* Total */}
+          <div style={{
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            padding: "12px 16px",
+            background: "rgba(0,255,136,0.06)",
+            border: "1px solid var(--green)",
+            borderRadius: "var(--r-md)",
+          }}>
+            <span style={{ fontSize: 12, color: "var(--ink-2)" }}>Total combinado</span>
+            <span style={{ fontSize: 20, fontWeight: 700, color: "var(--green)" }}>
+              {fmtPrice(entry.total_price)}
+            </span>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div style={{
+          padding: "0 20px 20px",
+          display: "flex", gap: 10,
+        }}>
+          {onShare && (
+            <button
+              onClick={() => onShare(shareData)}
+              style={{
+                flex: 1,
+                background: "transparent",
+                border: "1px solid var(--line-2)",
+                borderRadius: "var(--r-sm)",
+                color: "var(--ink-2)",
+                fontFamily: "var(--mono)",
+                fontSize: 12,
+                padding: "10px 0",
+                cursor: "pointer",
+              }}
+            >
+              Share deal ↗
+            </button>
+          )}
+          <button
+            onClick={() => { bookCombo(origin, hub, dest); onClose(); }}
+            style={{
+              flex: 2,
+              background: "var(--green)",
+              border: "none",
+              borderRadius: "var(--r-sm)",
+              color: "var(--on-accent)",
+              fontFamily: "var(--mono)",
+              fontSize: 13,
+              fontWeight: 700,
+              padding: "10px 0",
+              cursor: "pointer",
+            }}
+          >
+            Book this combo →
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -613,6 +830,7 @@ function ShareCardModal({
 export function PriceMatrix({ matrix, origin, onShare }: Props) {
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [shareData, setShareData] = useState<ShareData | null>(null);
+  const [detailCell, setDetailCell] = useState<CellInfo | null>(null);
 
   const destData = matrix[origin];
   if (!destData) {
@@ -670,9 +888,9 @@ export function PriceMatrix({ matrix, origin, onShare }: Props) {
 
   const handleCellClick = useCallback(
     (cell: CellInfo) => {
-      bookCombo(origin, cell.entry.hub, cell.dest);
+      setDetailCell(cell);
     },
-    [origin]
+    []
   );
 
   const handleShare = useCallback(
@@ -787,11 +1005,21 @@ export function PriceMatrix({ matrix, origin, onShare }: Props) {
 
       {/* Best Deal Callout */}
       {bestCell && (
-        <BestDealCallout cell={bestCell} onShare={handleShare} />
+        <BestDealCallout cell={bestCell} onShare={handleShare} onDetail={setDetailCell} />
       )}
 
       {/* Hover tooltip */}
       {tooltip && <HoverTooltip state={tooltip} origin={origin} />}
+
+      {/* Flight Detail Modal */}
+      {detailCell && (
+        <FlightDetailModal
+          cell={detailCell}
+          origin={origin}
+          onClose={() => setDetailCell(null)}
+          onShare={(d) => { setShareData(d); setDetailCell(null); }}
+        />
+      )}
 
       {/* Share Card Modal */}
       {shareData && (
