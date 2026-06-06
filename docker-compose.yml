@@ -8,11 +8,13 @@ services:
     restart: unless-stopped
     environment:
       - POLL_INTERVAL_SECONDS=2
-      - POLL_TIMEOUT_SECONDS=300
+      - POLL_TIMEOUT_SECONDS=480
+    volumes:
+      - bestfly-data:/data
     networks:
       - internal
     labels:
-      - "traefik.enable=false"   # backend is internal only; nginx proxies it
+      - "traefik.enable=false"
 
   bestfly-frontend:
     build:
@@ -28,17 +30,18 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik-public"
-      # ── Router ──────────────────────────────────────────────────────────
       - "traefik.http.routers.bestfly.rule=Host(`fly.zyia.com.br`)"
       - "traefik.http.routers.bestfly.entrypoints=websecure"
       - "traefik.http.routers.bestfly.tls=true"
       - "traefik.http.routers.bestfly.tls.certresolver=letsencrypt"
-      # ── Service ─────────────────────────────────────────────────────────
       - "traefik.http.services.bestfly.loadbalancer.server.port=80"
-      # ── HTTP → HTTPS redirect ────────────────────────────────────────────
       - "traefik.http.routers.bestfly-http.rule=Host(`fly.zyia.com.br`)"
       - "traefik.http.routers.bestfly-http.entrypoints=web"
       - "traefik.http.routers.bestfly-http.middlewares=redirect-to-https@file"
+
+volumes:
+  bestfly-data:
+    driver: local
 
 networks:
   internal:

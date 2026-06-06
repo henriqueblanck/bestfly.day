@@ -13,6 +13,7 @@ from pydantic import BaseModel, field_validator
 
 from config import settings
 from engine.split_ticketing import SearchRequest, SplitTicketingEngine
+import db
 
 log = logging.getLogger(__name__)
 
@@ -20,6 +21,11 @@ jobs: dict[str, dict[str, Any]] = {}
 _JOB_TTL_SECONDS = 3600  # purge completed/failed jobs after 1h
 
 app = FastAPI(title="BestFly — Flight Price Matrix")
+
+
+@app.on_event("startup")
+async def startup():
+    db.init_db()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -64,9 +70,9 @@ class SearchInput(BaseModel):
             hubs = len(data.get("hubs", []))
             dests = len(data.get("destinations", []))
             total = (origins * hubs + hubs * dests) * days
-            if total > 50:
+            if total > 100:
                 raise ValueError(
-                    f"Total searches must be ≤ 50 "
+                    f"Total searches must be ≤ 100 "
                     f"(({origins}×{hubs} + {hubs}×{dests}) × {days} = {total})"
                 )
         return v
@@ -143,6 +149,17 @@ def _serialize_matrix(matrix) -> dict:
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/history")
+async def price_history(origin: str, destination: str, flight_date: str, days_back: int = 30):
+    from datetime import date as DateType
+    try:
+        d = DateType.fromisoformat(flight_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format, use YYYY-MM-DD")
+    rows = await asyncio.to_thread(db.price_history, origin, destination, d, days_back)
+    return {"origin": origin, "destination": destination, "flight_date": flight_date, "history": rows}
 
 
 @app.get("/api/debug/fli")

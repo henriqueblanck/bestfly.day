@@ -1,7 +1,6 @@
-"""Google Flights client via fli (reverse-engineered API)."""
+"""Google Flights client via fli (reverse-engineered API) with SQLite cache."""
 import asyncio
 import logging
-import time
 from datetime import date
 from decimal import Decimal
 
@@ -16,12 +15,14 @@ from fli.models import (
 from fli.search.flights import SearchFlights
 from pydantic import BaseModel
 
+import db
+
 log = logging.getLogger(__name__)
 
 _STOPS_MAP = {0: MaxStops.NON_STOP, 1: MaxStops.ONE_STOP_OR_FEWER, 2: MaxStops.TWO_OR_FEWER_STOPS}
 
 _RETRY_ATTEMPTS = 3
-_RETRY_BACKOFF = [3.0, 6.0]  # seconds between retries
+_RETRY_BACKOFF = [3.0, 6.0]
 
 
 class UnknownAirportError(ValueError):
@@ -40,6 +41,23 @@ class OfferSlice(BaseModel):
     airline: str = ""
 
 
+def _rows_to_slices(rows: list[dict], origin: str, destination: str, departure_date: date) -> list[OfferSlice]:
+    return [
+        OfferSlice(
+            origin=origin,
+            destination=destination,
+            departure_date=departure_date,
+            price=Decimal(str(r["price"])),
+            currency=r.get("currency") or "BRL",
+            offer_id=r.get("offer_id") or "",
+            duration_minutes=r.get("duration_minutes") or 0,
+            connections=r.get("connections") or 0,
+            airline=r.get("airline") or "",
+        )
+        for r in rows
+    ]
+
+
 class GoogleFlightsClient:
     async def search_one_way(
         self,
@@ -52,11 +70,16 @@ class GoogleFlightsClient:
             origin_airport = Airport[origin]
         except KeyError:
             raise UnknownAirportError(f"código não reconhecido pelo fli: {origin}")
-
         try:
             dest_airport = Airport[destination]
         except KeyError:
             raise UnknownAirportError(f"código não reconhecido pelo fli: {destination}")
+
+        # Cache hit?
+        cached = await asyncio.to_thread(db.get_cached, origin, destination, departure_date)
+        if cached is not None:
+            log.info("cache hit %s→%s %s (%d slices)", origin, destination, departure_date, len(cached))
+            return _rows_to_slices(cached, origin, destination, departure_date)
 
         max_stops = _STOPS_MAP.get(max_connections, MaxStops.ANY)
 
@@ -99,30 +122,32 @@ class GoogleFlightsClient:
                         airline=airline,
                     )
                 )
-            return slices
+            return slices or None
 
         last_exc: Exception | None = None
         for attempt in range(_RETRY_ATTEMPTS):
             try:
                 result = await asyncio.to_thread(_search)
                 if result is not None:
+                    # Persist to cache
+                    await asyncio.to_thread(
+                        db.save_slices,
+                        origin, destination, departure_date,
+                        [s.model_dump(mode="json") for s in result],
+                    )
                     return result
-                # Google returned empty — retry in case of transient rate limit
                 if attempt < _RETRY_ATTEMPTS - 1:
                     wait = _RETRY_BACKOFF[attempt]
                     log.warning(
-                        "fli returned empty for %s→%s %s, retry %d/%d in %.0fs",
-                        origin, destination, departure_date, attempt + 1, _RETRY_ATTEMPTS, wait,
+                        "fli empty %s→%s %s, retry %d in %.0fs",
+                        origin, destination, departure_date, attempt + 1, wait,
                     )
                     await asyncio.sleep(wait)
             except UnknownAirportError:
                 raise
             except Exception as exc:
                 last_exc = exc
-                log.error(
-                    "fli error %s→%s %s (attempt %d): %s",
-                    origin, destination, departure_date, attempt + 1, exc,
-                )
+                log.error("fli error %s→%s %s (attempt %d): %s", origin, destination, departure_date, attempt + 1, exc)
                 if attempt < _RETRY_ATTEMPTS - 1:
                     await asyncio.sleep(_RETRY_BACKOFF[attempt])
 

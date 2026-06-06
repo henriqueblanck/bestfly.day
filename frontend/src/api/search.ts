@@ -64,7 +64,7 @@ export async function waitForMatrix(
   jobId: string,
   onProgress: (status: string, newLogs: string[]) => void,
   intervalMs = 2000,
-  timeoutMs = 240_000
+  timeoutMs = 480_000
 ): Promise<Matrix> {
   const deadline = Date.now() + timeoutMs;
   let lastMatrix: Matrix = {};

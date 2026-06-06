@@ -7,7 +7,7 @@ interface Props {
   loading: boolean;
 }
 
-const HUB_OPTIONS = ["MAD", "LIS", "CDG", "AMS", "FCO", "MXP"];
+const HUB_OPTIONS = ["MAD", "LIS", "IST", "CDG", "AMS", "FRA", "FCO", "LHR", "MUC", "MXP"];
 const DATE_RANGE_DAYS = 10;
 
 function todayPlus(n: number): string {
@@ -16,7 +16,7 @@ function todayPlus(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-const MAX_COMBOS = 50;
+const MAX_COMBOS = 100;
 
 export function SearchForm({ onSubmit, loading }: Props) {
   const [originCodes, setOriginCodes] = useState<string[]>(["GRU", "BSB"]);
