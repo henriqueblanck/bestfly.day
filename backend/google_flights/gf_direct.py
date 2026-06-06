@@ -122,6 +122,16 @@ class GFResult:
     duration_minutes: int = 0
     stops: int = 0
     departure_time: str = ""
+    # Per-leg breakdown (only populated for round-trip results)
+    outbound_price: Decimal | None = None
+    return_price: Decimal | None = None
+    outbound_airline: str = ""
+    return_airline: str = ""
+    outbound_duration_minutes: int = 0
+    return_duration_minutes: int = 0
+    outbound_stops: int = 0
+    return_stops: int = 0
+    return_departure_time: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -525,16 +535,22 @@ async def search_round_trip(
             ret_result = _row_to_gfresult(ret_row, currency)
             if ret_result is None:
                 continue
-            # Combine outbound + return into one GFResult
-            # Price is the total for both legs
-            combined_price = out_result.price + ret_result.price
             combined = GFResult(
-                price=combined_price,
+                price=out_result.price + ret_result.price,
                 currency=currency,
                 airline=out_result.airline or ret_result.airline,
                 duration_minutes=out_result.duration_minutes + ret_result.duration_minutes,
                 stops=max(out_result.stops, ret_result.stops),
                 departure_time=out_result.departure_time,
+                outbound_price=out_result.price,
+                return_price=ret_result.price,
+                outbound_airline=out_result.airline,
+                return_airline=ret_result.airline,
+                outbound_duration_minutes=out_result.duration_minutes,
+                return_duration_minutes=ret_result.duration_minutes,
+                outbound_stops=out_result.stops,
+                return_stops=ret_result.stops,
+                return_departure_time=ret_result.departure_time,
             )
             results.append(combined)
         return results

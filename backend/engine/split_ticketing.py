@@ -274,8 +274,8 @@ class SplitTicketingEngine:
         max_duration_hours: int,
     ) -> list[OfferSlice]:
         async with self._request_lock:
-            await self._sem.acquire()
             await asyncio.sleep(INTER_REQUEST_DELAY)
+        await self._sem.acquire()
         try:
             return await self._fetch(origin, destination, d, max_connections, max_duration_hours)
         finally:

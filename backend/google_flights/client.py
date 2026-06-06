@@ -104,23 +104,24 @@ class GoogleFlightsClient:
             return None
 
         best = results[0]  # already sorted by price
-        total = best.price
-        half = (total / 2).quantize(Decimal("0.01"))
 
         log.info("gf_direct round-trip %s↔%s %s/%s: R$%s (%s)",
-                 origin, destination, outbound_date, return_date, total, best.airline)
+                 origin, destination, outbound_date, return_date, best.price, best.airline)
+
+        out_price = best.outbound_price if best.outbound_price is not None else best.price / 2
+        ret_price = best.return_price if best.return_price is not None else best.price - out_price
 
         return RoundTripOffer(
-            outbound_price=half,
-            return_price=total - half,
-            total_price=total,
+            outbound_price=out_price.quantize(Decimal("0.01")),
+            return_price=ret_price.quantize(Decimal("0.01")),
+            total_price=best.price,
             currency=best.currency,
-            outbound_airline=best.airline,
-            return_airline=best.airline,
-            outbound_duration_minutes=best.duration_minutes,
-            return_duration_minutes=best.duration_minutes,
-            outbound_connections=best.stops,
-            return_connections=best.stops,
+            outbound_airline=best.outbound_airline or best.airline,
+            return_airline=best.return_airline or best.airline,
+            outbound_duration_minutes=best.outbound_duration_minutes or best.duration_minutes // 2,
+            return_duration_minutes=best.return_duration_minutes or best.duration_minutes // 2,
+            outbound_connections=best.outbound_stops if best.outbound_price is not None else best.stops,
+            return_connections=best.return_stops if best.return_price is not None else best.stops,
         )
 
     async def search_one_way(

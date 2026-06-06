@@ -294,6 +294,8 @@ def _serialize_matrix(matrix) -> dict:
                     "direct_duration_minutes": entry.direct_duration_minutes,
                     "direct_connections": entry.direct_connections,
                     "direct_departure_time": entry.direct_departure_time,
+                    "split_price": float(entry.split_price) if entry.split_price is not None else None,
+                    "split_hub": entry.split_hub or None,
                     "hist_avg": None,
                     "deal_pct": None,
                     "trend": None,
@@ -448,7 +450,7 @@ async def discover_hubs(origin: str = "GRU", date: str | None = None):
     return {
         "origin": origin,
         "date": test_date.isoformat(),
-        "internal_hubs": INTERNAL_HUBS,
+        "internal_hubs": _HUB_CANDIDATES,
         "found": len(ok),
         "hubs_with_flights": ok,
         "hubs_no_results": other,
