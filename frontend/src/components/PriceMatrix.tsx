@@ -302,6 +302,30 @@ function HoverTooltip({ state, origin }: { state: TooltipState; origin: string }
         <span style={{ color: "var(--green)", fontWeight: 700, fontSize: 14 }}>{fmtPrice(entry.total_price)}</span>
       </div>
 
+      {/* Historical context */}
+      {entry.hist_avg != null && entry.hist_obs >= 3 && (
+        <>
+          <div style={{ borderTop: "1px solid var(--line)", marginBottom: 10, marginTop: 10 }} />
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+            <span style={{ color: "var(--ink-3)", fontSize: 11 }}>
+              média histórica ({entry.hist_obs}x)
+              {entry.trend === "up" ? " ↑" : entry.trend === "down" ? " ↓" : ""}
+            </span>
+            <span style={{ color: "var(--ink-2)", fontSize: 11 }}>{fmtPrice(entry.hist_avg)}</span>
+          </div>
+          {entry.deal_pct != null && entry.deal_pct >= 5 && (
+            <div style={{ textAlign: "right", fontSize: 10, color: "var(--green)" }}>
+              {Math.round(entry.deal_pct)}% abaixo da média
+            </div>
+          )}
+          {entry.deal_pct != null && entry.deal_pct <= -5 && (
+            <div style={{ textAlign: "right", fontSize: 10, color: "var(--crimson)" }}>
+              {Math.round(-entry.deal_pct)}% acima da média
+            </div>
+          )}
+        </>
+      )}
+
       {/* When split wins: show direct as strikethrough comparison */}
       {entry.direct_price != null && entry.hub !== "DIRECT" && (
         <>
@@ -431,6 +455,22 @@ function MatrixCell({
         </div>
       )}
 
+      {/* Trend indicator — top-left */}
+      {entry.trend && entry.hist_obs >= 3 && (
+        <div style={{
+          position: "absolute",
+          top: 4,
+          left: 5,
+          fontSize: 8,
+          fontFamily: "var(--mono)",
+          color: entry.trend === "up" ? "var(--crimson)" : entry.trend === "down" ? "var(--green)" : "var(--muted)",
+          opacity: 0.85,
+          lineHeight: 1,
+        }}>
+          {entry.trend === "up" ? "↑" : entry.trend === "down" ? "↓" : "→"}
+        </div>
+      )}
+
       {/* Badge: SPLIT or DIRETO */}
       <div style={{
         position: "absolute",
@@ -492,6 +532,32 @@ function MatrixCell({
           opacity: 0.85,
         }}>
           -{Math.round((entry.direct_price - entry.total_price) / entry.direct_price * 100)}% vs direto
+        </div>
+      )}
+
+      {/* Deal badge — historical */}
+      {entry.deal_pct != null && entry.deal_pct >= 10 && (
+        <div style={{
+          fontFamily: "var(--mono)",
+          fontSize: 8,
+          color: "var(--green)",
+          marginTop: 2,
+          lineHeight: 1,
+          opacity: 0.9,
+        }}>
+          -{Math.round(entry.deal_pct)}% hist
+        </div>
+      )}
+      {entry.deal_pct != null && entry.deal_pct <= -10 && (
+        <div style={{
+          fontFamily: "var(--mono)",
+          fontSize: 8,
+          color: "var(--crimson)",
+          marginTop: 2,
+          lineHeight: 1,
+          opacity: 0.7,
+        }}>
+          +{Math.round(-entry.deal_pct)}% acima
         </div>
       )}
 
@@ -982,6 +1048,40 @@ function FlightDetailModal({
               </div>
               <span style={{ fontSize: 14, color: "var(--ink-3)", textDecoration: "line-through" }}>
                 {fmtPrice(entry.direct_price)}
+              </span>
+            </div>
+          )}
+
+          {/* Historical price context */}
+          {entry.hist_avg != null && entry.hist_obs >= 3 && (
+            <div style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              padding: "10px 16px",
+              background: entry.deal_pct != null && entry.deal_pct >= 10
+                ? "rgba(0,255,136,0.05)"
+                : entry.deal_pct != null && entry.deal_pct <= -10
+                  ? "rgba(255,77,99,0.05)"
+                  : "var(--surface-2)",
+              border: `1px solid ${entry.deal_pct != null && entry.deal_pct >= 10 ? "rgba(0,255,136,0.3)" : entry.deal_pct != null && entry.deal_pct <= -10 ? "rgba(255,77,99,0.25)" : "var(--line)"}`,
+              borderRadius: "var(--r-md)",
+            }}>
+              <div>
+                <div style={{ fontSize: 11, color: "var(--ink-3)", marginBottom: 2 }}>
+                  histórico ({entry.hist_obs} buscas){entry.trend === "up" ? " · preço subindo ↑" : entry.trend === "down" ? " · preço caindo ↓" : ""}
+                </div>
+                {entry.deal_pct != null && entry.deal_pct >= 5 && (
+                  <div style={{ fontSize: 10, color: "var(--green)", fontWeight: 600 }}>
+                    {Math.round(entry.deal_pct)}% abaixo da média histórica
+                  </div>
+                )}
+                {entry.deal_pct != null && entry.deal_pct <= -5 && (
+                  <div style={{ fontSize: 10, color: "var(--crimson)", fontWeight: 600 }}>
+                    {Math.round(-entry.deal_pct)}% acima da média histórica
+                  </div>
+                )}
+              </div>
+              <span style={{ fontSize: 14, color: "var(--ink-3)" }}>
+                avg {fmtPrice(entry.hist_avg)}
               </span>
             </div>
           )}

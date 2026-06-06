@@ -36,6 +36,11 @@ export interface MatrixEntry {
   // Best split alternative (populated when direct wins)
   split_price?: number;
   split_hub?: string;
+  // Historical price intelligence (Camada 3)
+  hist_avg: number | null;
+  deal_pct: number | null;   // positive = below avg (deal), negative = above avg
+  trend: "up" | "down" | "stable" | null;
+  hist_obs: number;
 }
 
 export type Matrix = Record<string, Record<string, Record<string, MatrixEntry>>>;

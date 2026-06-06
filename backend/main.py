@@ -175,7 +175,9 @@ async def _run_search(job_id: str, req: SearchInput):
             markup_fn=markup_fn,
         )
         matrix = await engine.compute(outbound)
-        jobs[job_id]["matrix"] = _serialize_matrix(matrix)
+        serialized_out = _serialize_matrix(matrix)
+        serialized_out = await _enrich_with_stats(serialized_out)
+        jobs[job_id]["matrix"] = serialized_out
 
         # ── Return (roundtrip) ──
         if req.trip_type == "roundtrip" and req.return_date_from:
@@ -194,7 +196,9 @@ async def _run_search(job_id: str, req: SearchInput):
                 markup_fn=markup_fn,
             )
             return_matrix = await ret_engine.compute(return_req)
-            jobs[job_id]["return_matrix"] = _serialize_matrix(return_matrix)
+            serialized_ret = _serialize_matrix(return_matrix)
+            serialized_ret = await _enrich_with_stats(serialized_ret)
+            jobs[job_id]["return_matrix"] = serialized_ret
 
             # ── Round-trip direct baseline ──
             # Probe one representative pair per origin↔dest to capture
@@ -267,8 +271,58 @@ def _serialize_matrix(matrix) -> dict:
                     "direct_duration_minutes": entry.direct_duration_minutes,
                     "direct_connections": entry.direct_connections,
                     "direct_departure_time": entry.direct_departure_time,
+                    "hist_avg": None,
+                    "deal_pct": None,
+                    "trend": None,
+                    "hist_obs": 0,
                 }
     return out
+
+
+async def _enrich_with_stats(serialized: dict) -> dict:
+    """Annotate matrix entries with historical price stats and record hub wins."""
+    routes: list[tuple[str, str, str]] = []
+    for origin, dests in serialized.items():
+        for dest, dates in dests.items():
+            for d_iso in dates:
+                routes.append((origin, dest, d_iso))
+
+    if not routes:
+        return serialized
+
+    stats = await asyncio.to_thread(db.get_bulk_stats, routes)
+
+    wins: list[dict] = []
+    for origin, dests in serialized.items():
+        for dest, dates in dests.items():
+            for d_iso, entry in dates.items():
+                key = f"{origin}|{dest}|{d_iso}"
+                s = stats.get(key)
+                if s and s["avg_price"] and s["observations"] >= 3:
+                    avg = s["avg_price"]
+                    deal_pct = round((avg - entry["total_price"]) / avg * 100, 1)
+                    entry["hist_avg"] = round(avg, 2)
+                    entry["deal_pct"] = deal_pct
+                    entry["trend"] = s["trend"]
+                    entry["hist_obs"] = s["observations"]
+                else:
+                    entry["hist_avg"] = None
+                    entry["deal_pct"] = None
+                    entry["trend"] = None
+                    entry["hist_obs"] = 0
+
+                wins.append({
+                    "origin": origin,
+                    "destination": dest,
+                    "flight_date": d_iso,
+                    "hub": entry["hub"],
+                    "price": entry["total_price"],
+                })
+
+    if wins:
+        asyncio.create_task(asyncio.to_thread(db.record_hub_wins, wins))
+
+    return serialized
 
 
 @app.get("/api/health")
@@ -290,6 +344,12 @@ async def price_history(origin: str, destination: str, flight_date: str, days_ba
         raise HTTPException(status_code=400, detail="Invalid date format, use YYYY-MM-DD")
     rows = await asyncio.to_thread(db.price_history, origin, destination, d, days_back)
     return {"origin": origin, "destination": destination, "flight_date": flight_date, "history": rows}
+
+
+@app.get("/api/stats/hubs")
+async def hub_stats(days_back: int = 30):
+    rows = await asyncio.to_thread(db.get_hub_win_rates, days_back)
+    return {"days_back": days_back, "hubs": rows}
 
 
 _HUB_CANDIDATES = [
