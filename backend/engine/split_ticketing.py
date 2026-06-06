@@ -90,42 +90,74 @@ class SplitTicketingEngine:
         remaining_dates = date_range[1:]
 
         self._emit(
-            f"[start] descoberta em {len(req.hub_candidates)} candidatos · "
-            f"{len(date_range)} dia(s) · top-{req.top_k_hubs} hubs · {CONCURRENT_SEARCHES} paralelo"
+            f"[start] probe em {len(req.hub_candidates)} candidatos + direto · "
+            f"{len(date_range)} dia(s) · {CONCURRENT_SEARCHES} paralelo"
         )
 
-        # ── Phase 1: probe all candidates on probe_date ──────────────────────
-        self._emit(f"[fase 1] testando {len(req.hub_candidates)} candidatos em {probe_date.strftime('%d/%m')}…")
-        probe_combos = [(origin, hub) for origin in req.origins for hub in req.hub_candidates]
-        probe_results = await asyncio.gather(*[
-            self._throttled_fetch(origin, hub, probe_date, req.max_connections, req.max_duration_hours)
-            for origin, hub in probe_combos
-        ])
+        # ── Phase 1: probe hub candidates AND direct baseline simultaneously ──
+        self._emit(f"[fase 1] {probe_date.strftime('%d/%m')} — direto + {len(req.hub_candidates)} hubs candidatos…")
 
-        # Rank hubs by cheapest price from any origin
-        hub_best: dict[str, Decimal] = {}
-        probe_slices: dict[tuple, list[OfferSlice]] = {}
-        for (origin, hub), slices in zip(probe_combos, probe_results):
-            probe_slices[(origin, hub)] = slices
+        hub_combos = [(origin, hub) for origin in req.origins for hub in req.hub_candidates]
+        direct_combos_probe = [(origin, dest) for origin in req.origins for dest in req.destinations]
+
+        hub_probe_coros = [
+            self._throttled_fetch(o, h, probe_date, req.max_connections, req.max_duration_hours)
+            for o, h in hub_combos
+        ]
+        direct_probe_coros = [
+            self._throttled_fetch(o, d, probe_date, req.max_connections, req.max_duration_hours)
+            for o, d in direct_combos_probe
+        ]
+
+        all_probe = await asyncio.gather(*(hub_probe_coros + direct_probe_coros))
+        hub_probe_results = all_probe[:len(hub_combos)]
+        direct_probe_results = all_probe[len(hub_combos):]
+
+        # Baseline: cheapest direct price per origin (lower bound for pruning)
+        direct_probe_slices: dict[tuple, list[OfferSlice]] = {}
+        min_direct_by_origin: dict[str, Decimal] = {}
+        for (origin, dest), slices in zip(direct_combos_probe, direct_probe_results):
+            direct_probe_slices[(origin, dest)] = slices
             if slices:
                 best = min(slices, key=lambda s: s.price).price
-                if hub not in hub_best or best < hub_best[hub]:
-                    hub_best[hub] = best
+                if origin not in min_direct_by_origin or best < min_direct_by_origin[origin]:
+                    min_direct_by_origin[origin] = best
+
+        for origin, price in min_direct_by_origin.items():
+            self._emit(f"  baseline direto {origin}: R${int(price)}")
+
+        # Rank hubs + prune: discard hubs where origin→hub ≥ cheapest direct from that origin
+        hub_best: dict[str, Decimal] = {}
+        hub_probe_slices: dict[tuple, list[OfferSlice]] = {}
+        pruned: list[str] = []
+        for (origin, hub), slices in zip(hub_combos, hub_probe_results):
+            hub_probe_slices[(origin, hub)] = slices
+            if not slices:
+                continue
+            best = min(slices, key=lambda s: s.price).price
+            baseline = min_direct_by_origin.get(origin)
+            if baseline is not None and best >= baseline:
+                if hub not in pruned:
+                    pruned.append(hub)
+                continue
+            if hub not in hub_best or best < hub_best[hub]:
+                hub_best[hub] = best
+
+        if pruned:
+            self._emit(f"  ✂ descartados (≥ baseline): {', '.join(dict.fromkeys(pruned))}")
 
         selected_hubs = sorted(hub_best, key=lambda h: hub_best[h])[:req.top_k_hubs]
         if not selected_hubs:
-            # Fallback: no probe results — use first K candidates
-            selected_hubs = req.hub_candidates[:req.top_k_hubs]
-            self._emit(f"  ⚠ probe sem resultados — usando fallback: {selected_hubs}")
+            self._emit("  ⚠ todos os hubs custam mais que o direto — exibindo apenas baseline")
         else:
             summary = " · ".join(f"{h} R${int(hub_best[h])}" for h in selected_hubs)
             self._emit(f"[hubs selecionados] {summary}")
 
-        # ── Collect probe slices for selected hubs (reuse phase 1 data) ──────
+        # ── Collect phase-1 slices (reuse — no double search) ───────────────
         all_lh_slices: list[OfferSlice] = []
         for hub in selected_hubs:
             for origin in req.origins:
-                slices = probe_slices.get((origin, hub), [])
+                slices = hub_probe_slices.get((origin, hub), [])
                 all_lh_slices.extend(slices)
                 if slices:
                     best = min(slices, key=lambda s: s.price)
@@ -133,11 +165,19 @@ class SplitTicketingEngine:
                         f"  ✓ {origin}→{hub} {probe_date.strftime('%d/%m')} · "
                         f"{best.airline or '—'} · {_fmt_duration(best.duration_minutes)} · R${int(best.price)}"
                     )
-                else:
-                    self._emit(f"  – {origin}→{hub} {probe_date.strftime('%d/%m')} sem resultado")
 
         all_eu_slices: list[OfferSlice] = []
+
+        # Seed direct slices from probe (probe_date already done)
         all_direct_slices: list[OfferSlice] = []
+        for (origin, dest), slices in direct_probe_slices.items():
+            all_direct_slices.extend(slices)
+            if slices:
+                best = min(slices, key=lambda s: s.price)
+                self._emit(
+                    f"  ✓ {origin}→{dest} {probe_date.strftime('%d/%m')} direto · "
+                    f"{best.airline or '—'} · {_fmt_duration(best.duration_minutes)} · R${int(best.price)}"
+                )
 
         # ── Phase 2: full matrix for selected hubs ───────────────────────────
         for hub in selected_hubs:
@@ -188,20 +228,20 @@ class SplitTicketingEngine:
                 entries = sum(len(dates) for dests in partial.values() for dates in dests.values())
                 self._emit(f"[hub {hub}] ✓ concluído · {entries} combos na matrix parcial")
 
-        # ── Direct searches ───────────────────────────────────────────────────
-        direct_combos = [
-            (origin, dest, d)
-            for origin in req.origins
-            for dest in req.destinations
-            for d in date_range
-        ]
-        if direct_combos:
-            self._emit(f"[direto] {len(direct_combos)} buscas")
+        # ── Direct searches for remaining dates (probe_date already done) ───
+        if remaining_dates:
+            direct_combos_rem = [
+                (origin, dest, d)
+                for origin in req.origins
+                for dest in req.destinations
+                for d in remaining_dates
+            ]
+            self._emit(f"[direto] {len(direct_combos_rem)} buscas (datas restantes)")
             direct_results = await asyncio.gather(*[
                 self._throttled_fetch(origin, dest, d, req.max_connections, req.max_duration_hours)
-                for origin, dest, d in direct_combos
+                for origin, dest, d in direct_combos_rem
             ])
-            for (origin, dest, d), slices in zip(direct_combos, direct_results):
+            for (origin, dest, d), slices in zip(direct_combos_rem, direct_results):
                 all_direct_slices.extend(slices)
                 if slices:
                     best = min(slices, key=lambda s: s.price)
