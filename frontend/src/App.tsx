@@ -145,11 +145,6 @@ function TotalBar({
 }
 
 type View = "landing" | "search";
-type Theme = "terminal" | "mint" | "lime" | "cyan" | "cream";
-const THEME_CYCLE: Theme[] = ["terminal", "mint", "lime", "cyan", "cream"];
-const THEME_LABEL: Record<Theme, string> = {
-  terminal: "◑", mint: "mint", lime: "lime", cyan: "cyan", cream: "cream",
-};
 
 const STATUS_ONCE: Record<string, LogLine> = {
   queued:   { kind: "info", text: "Job na fila…" },
@@ -159,26 +154,12 @@ const STATUS_ONCE: Record<string, LogLine> = {
 
 export default function App() {
   const [view, setView] = useState<View>("landing");
-  const [theme, setTheme] = useState<Theme>(() => {
-    try { return (localStorage.getItem("bf-theme") as Theme) || "terminal"; } catch { return "terminal"; }
-  });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    applyTheme(theme);
+    document.documentElement.setAttribute("data-theme", "cream");
+    document.documentElement.style.colorScheme = "light";
   }, []);
-
-  function applyTheme(t: Theme) {
-    document.documentElement.setAttribute("data-theme", t);
-    document.documentElement.style.colorScheme = t === "cream" ? "light" : "dark";
-    try { localStorage.setItem("bf-theme", t); } catch {}
-  }
-
-  function toggleTheme() {
-    const next = THEME_CYCLE[(THEME_CYCLE.indexOf(theme) + 1) % THEME_CYCLE.length];
-    applyTheme(next);
-    setTheme(next);
-  }
 
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [matrix, setMatrix] = useState<Matrix | null>(null);
@@ -290,7 +271,7 @@ export default function App() {
   }
 
   if (view === "landing") {
-    return <Landing onStart={() => setView("search")} theme={theme} onToggleTheme={toggleTheme} />;
+    return <Landing onStart={() => setView("search")} />;
   }
 
   const hasMatrix = matrix || returnMatrix;
@@ -306,30 +287,11 @@ export default function App() {
         >
           bestfly<span style={{ color: "var(--muted)" }}>.day</span>
         </button>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {hasMatrix && (
-            <span style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--mono)" }}>
-              <span style={{ color: "var(--green)" }}>●</span> matrix ready
-            </span>
-          )}
-          <button
-            onClick={toggleTheme}
-            title="Next theme"
-            style={{
-              background: "none",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--r-sm)",
-              color: "var(--muted2)",
-              fontSize: 12,
-              padding: "4px 10px",
-              cursor: "pointer",
-              fontFamily: "var(--mono)",
-              letterSpacing: 0.3,
-            }}
-          >
-            {THEME_LABEL[theme]} →
-          </button>
-        </div>
+        {hasMatrix && (
+          <span style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--mono)" }}>
+            <span style={{ color: "var(--green)" }}>●</span> matrix ready
+          </span>
+        )}
       </nav>
 
       <div className={hasMatrix ? "bf-app-panels" : ""} style={{ flex: 1, display: hasMatrix ? undefined : "block", maxWidth: hasMatrix ? "none" : 560, margin: hasMatrix ? 0 : "40px auto", padding: hasMatrix ? 0 : "0 24px", width: "100%" }}>

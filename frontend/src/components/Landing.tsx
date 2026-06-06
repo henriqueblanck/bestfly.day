@@ -18,8 +18,6 @@ const DEALS_TODAY = 847;
 
 interface Props {
   onStart: () => void;
-  theme?: string;
-  onToggleTheme?: () => void;
 }
 
 // Smooth animated price countdown: airline → bestfly
@@ -167,7 +165,7 @@ function PriceCountdown() {
   );
 }
 
-export function Landing({ onStart, theme, onToggleTheme }: Props) {
+export function Landing({ onStart }: Props) {
   const [dealsCount] = useState(DEALS_TODAY);
   const [savingsInput, setSavingsInput] = useState("");
   const [overpaid, setOverpaid] = useState<number | null>(null);
@@ -199,25 +197,6 @@ export function Landing({ onStart, theme, onToggleTheme }: Props) {
             </span>
             {" "}deals found today
           </span>
-          {onToggleTheme && (
-            <button
-              onClick={onToggleTheme}
-              title="Next theme"
-              style={{
-                background: "none",
-                border: "1px solid var(--border)",
-                borderRadius: "var(--r-sm)",
-                color: "var(--muted2)",
-                fontSize: 12,
-                padding: "4px 10px",
-                cursor: "pointer",
-                fontFamily: "var(--mono)",
-                letterSpacing: 0.3,
-              }}
-            >
-              {theme ?? "◑"} →
-            </button>
-          )}
         </div>
       </nav>
 
