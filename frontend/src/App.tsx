@@ -41,14 +41,24 @@ function TotalBar({
 }: {
   ida: PinnedLeg | null;
   volta: PinnedLeg | null;
-  roundtripDirect: Record<string, Record<string, RoundTripDirectOffer>> | null;
+  roundtripDirect: Record<string, Record<string, Record<string, RoundTripDirectOffer>>> | null;
 }) {
   const splitTotal = (ida?.price ?? 0) + (volta?.price ?? 0);
   const bothSelected = !!(ida && volta);
 
-  const rt = ida && volta
-    ? roundtripDirect?.[ida.origin]?.[ida.dest] ?? null
-    : null;
+  // Look up round-trip offer for the exact pinned outbound date.
+  // Fall back to the cheapest available date if the exact date wasn't searched.
+  const rt = (() => {
+    if (!ida || !volta) return null;
+    const byDate = roundtripDirect?.[ida.origin]?.[ida.dest];
+    if (!byDate) return null;
+    if (byDate[ida.date]) return byDate[ida.date];
+    // fallback: cheapest across all searched dates
+    return Object.values(byDate).reduce<RoundTripDirectOffer | null>(
+      (best, o) => (!best || o.total < best.total ? o : best),
+      null,
+    );
+  })();
   const rtTotal = rt?.total ?? null;
   const splitWins = bothSelected && rtTotal != null && splitTotal < rtTotal;
   const rtWins = bothSelected && rtTotal != null && rtTotal <= splitTotal;
@@ -182,7 +192,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [pinnedIda, setPinnedIda] = useState<PinnedLeg | null>(null);
   const [pinnedVolta, setPinnedVolta] = useState<PinnedLeg | null>(null);
-  const [roundtripDirect, setRoundtripDirect] = useState<Record<string, Record<string, RoundTripDirectOffer>> | null>(null);
+  const [roundtripDirect, setRoundtripDirect] = useState<Record<string, Record<string, Record<string, RoundTripDirectOffer>>> | null>(null);
 
   const addLog = useCallback((line: LogLine) => {
     setLogs((prev) => [...prev, line]);

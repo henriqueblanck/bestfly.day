@@ -64,7 +64,8 @@ export interface JobResult {
   status: "queued" | "running" | "complete" | "failed";
   matrix: Matrix | null;
   return_matrix: Matrix | null;
-  roundtrip_direct: Record<string, Record<string, RoundTripDirectOffer>> | null;
+  // Indexed by origin → dest → outbound_date_iso → offer
+  roundtrip_direct: Record<string, Record<string, Record<string, RoundTripDirectOffer>>> | null;
   logs: string[];
   error: string | null;
 }
