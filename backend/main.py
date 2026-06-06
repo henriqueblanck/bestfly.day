@@ -20,8 +20,19 @@ log = logging.getLogger(__name__)
 jobs: dict[str, dict[str, Any]] = {}
 _JOB_TTL_SECONDS = 3600
 
-# Best transatlantic hubs — chosen from discovery data (price + duration balance)
-INTERNAL_HUBS = ["MAD", "LIS", "CDG", "FRA", "LHR", "AMS", "MUC", "IST"]
+# Candidate pool — engine probes all of these and picks the best for each search
+HUB_CANDIDATES = [
+    # Europe — primary transatlantic hubs
+    "MAD", "LIS", "CDG", "FRA", "LHR", "AMS", "MUC", "FCO", "ZRH",
+    # Europe — secondary
+    "BCN", "VIE", "BRU", "DUB", "IST", "ATH",
+    # Middle East — strong global hubs
+    "DOH", "DXB", "AUH",
+    # Americas — non-obvious intermediate connections
+    "MEX", "PTY", "BOG", "MIA",
+    # Africa
+    "ADD",
+]
 
 MAX_SEARCHES = 200
 
@@ -67,7 +78,7 @@ class SearchInput(BaseModel):
 
     @model_validator(mode="after")
     def combo_limit(self):
-        H = len(INTERNAL_HUBS)
+        C = len(HUB_CANDIDATES)
         origins = len(self.origins)
         dests = len(self.destinations)
 
@@ -84,13 +95,17 @@ class SearchInput(BaseModel):
             if ret_days > 10:
                 raise ValueError("Return date range must be ≤ 10 days")
 
-        # Formula: (H*(origins+dests) + origins*dests) * total_days
-        searches_per_day = H * (origins + dests) + origins * dests
-        total = searches_per_day * (out_days + ret_days)
-        if total > MAX_SEARCHES:
+        total_days = out_days + ret_days
+        # Phase 1 probe (1 day × all candidates × origins) + direct + phase 2 (estimated with top_k=5)
+        probe = origins * C
+        direct = origins * dests * total_days
+        phase2_per_hub = (origins + dests) * total_days
+        top_k = max(2, min(6, (MAX_SEARCHES - probe - direct) // phase2_per_hub)) if phase2_per_hub > 0 else 2
+        estimated = probe + direct + top_k * phase2_per_hub
+        if estimated > MAX_SEARCHES:
             raise ValueError(
-                f"Total searches must be ≤ {MAX_SEARCHES} "
-                f"(got {total} = {searches_per_day}/day × {out_days + ret_days} days)"
+                f"Total de buscas estimado ({estimated}) excede {MAX_SEARCHES}. "
+                f"Reduza destinos ou janela de datas."
             )
         return self
 
@@ -123,15 +138,31 @@ async def _run_search(job_id: str, req: SearchInput):
 
         engine = SplitTicketingEngine(log_fn=on_log, partial_fn=on_partial)
 
+        # Compute top_k from budget
+        C = len(HUB_CANDIDATES)
+        out_days = (req.date_to - req.date_from).days + 1
+        ret_days = 0
+        if req.trip_type == "roundtrip" and req.return_date_from:
+            ret_end = req.return_date_to or req.return_date_from
+            ret_days = (ret_end - req.return_date_from).days + 1
+        total_days = out_days + ret_days
+        origins = len(req.origins)
+        dests = len(req.destinations)
+        probe = origins * C
+        direct = origins * dests * total_days
+        phase2_per_hub = (origins + dests) * total_days
+        top_k = max(2, min(6, (MAX_SEARCHES - probe - direct) // phase2_per_hub)) if phase2_per_hub > 0 else 2
+
         # ── Outbound ──
         outbound = SearchRequest(
             origins=req.origins,
             destinations=req.destinations,
-            hubs=INTERNAL_HUBS,
+            hub_candidates=HUB_CANDIDATES,
             date_from=req.date_from,
             date_to=req.date_to,
             max_connections=req.max_connections,
             max_duration_hours=req.max_duration_hours,
+            top_k_hubs=top_k,
             markup_fn=markup_fn,
         )
         matrix = await engine.compute(outbound)
@@ -145,11 +176,12 @@ async def _run_search(job_id: str, req: SearchInput):
             return_req = SearchRequest(
                 origins=req.destinations,   # flipped
                 destinations=req.origins,   # flipped
-                hubs=INTERNAL_HUBS,
+                hub_candidates=HUB_CANDIDATES,
                 date_from=req.return_date_from,
                 date_to=ret_end,
                 max_connections=req.max_connections,
                 max_duration_hours=req.max_duration_hours,
+                top_k_hubs=top_k,
                 markup_fn=markup_fn,
             )
             return_matrix = await ret_engine.compute(return_req)
@@ -201,7 +233,7 @@ async def health():
 
 @app.get("/api/hubs")
 async def get_hubs():
-    return {"hubs": INTERNAL_HUBS}
+    return {"candidates": HUB_CANDIDATES, "count": len(HUB_CANDIDATES)}
 
 
 @app.get("/api/history")

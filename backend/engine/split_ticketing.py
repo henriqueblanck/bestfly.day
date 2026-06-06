@@ -1,13 +1,17 @@
 """
-Core split-ticketing engine.
+Core split-ticketing engine — two-phase adaptive hub discovery.
 
-Hub-by-hub execution with controlled parallelism:
-- Within each hub, long-haul and intra-EU searches fire concurrently
-- A shared semaphore (CONCURRENT_SEARCHES) caps simultaneous fli calls
-- A per-request delay prevents burst spikes even within the semaphore
-- Cache hits (from SQLite) bypass the semaphore entirely (instant)
-- Direct flights (origin→dest without hub) searched in parallel after hub phase
-- Partial matrix emitted after each hub completes both legs
+Phase 1 — Probe: test all hub candidates on a single date to rank them by price.
+Phase 2 — Matrix: run full date-range search for top-K discovered hubs.
+
+Budget example (ori=2, dest=5, days=3, candidates=24, top_k=5):
+  Phase 1: 2×24×1     =  48  (probe all candidates, 1 day)
+  Phase 2 LH: 5×2×2   =  20  (remaining dates, selected hubs only)
+  Phase 2 EU: 5×5×3   =  75  (all dates, hub→dest)
+  Direct: 2×5×3       =  30
+  Total               = 173  ✓ ≤ 200
+
+top_k auto-scales with remaining budget so the limit is never breached.
 """
 import asyncio
 import logging
@@ -16,7 +20,6 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Callable
 
-from config import settings
 from google_flights.client import GoogleFlightsClient, OfferSlice, UnknownAirportError
 
 log = logging.getLogger(__name__)
@@ -61,11 +64,12 @@ PriceMatrix = dict[str, dict[str, dict[str, MatrixEntry]]]
 class SearchRequest:
     origins: list[str]
     destinations: list[str]
-    hubs: list[str]
+    hub_candidates: list[str]      # full pool to probe in phase 1
     date_from: date
     date_to: date
     max_connections: int = 1
     max_duration_hours: int = 36
+    top_k_hubs: int = 5            # how many hubs to select after probe
     markup_fn: MarkupFn = field(default=lambda p: p)
 
 
@@ -75,64 +79,108 @@ class SplitTicketingEngine:
         self._log_fn = log_fn or (lambda msg: log.info(msg))
         self._partial_fn = partial_fn
         self._sem = asyncio.Semaphore(CONCURRENT_SEARCHES)
-        self._request_lock = asyncio.Lock()  # serialise semaphore acquisitions for the delay
+        self._request_lock = asyncio.Lock()
 
     def _emit(self, msg: str) -> None:
         self._log_fn(msg)
 
     async def compute(self, req: SearchRequest) -> PriceMatrix:
         date_range = _date_range(req.date_from, req.date_to)
-        all_lh_slices: list[OfferSlice] = []
-        all_eu_slices: list[OfferSlice] = []
-        all_direct_slices: list[OfferSlice] = []
+        probe_date = date_range[0]
+        remaining_dates = date_range[1:]
 
-        hub_searches = (len(req.origins) * len(req.hubs) + len(req.hubs) * len(req.destinations)) * len(date_range)
-        direct_searches = len(req.origins) * len(req.destinations) * len(date_range)
-        total_searches = hub_searches + direct_searches
         self._emit(
-            f"[start] {total_searches} buscas · {len(req.hubs)} hub(s) + direto · "
-            f"{len(date_range)} dia(s) · {CONCURRENT_SEARCHES} em paralelo"
+            f"[start] descoberta em {len(req.hub_candidates)} candidatos · "
+            f"{len(date_range)} dia(s) · top-{req.top_k_hubs} hubs · {CONCURRENT_SEARCHES} paralelo"
         )
 
-        for hub in req.hubs:
-            # ── Long-haul searches for this hub ──
-            lh_combos = [(origin, hub, d) for origin in req.origins for d in date_range]
-            self._emit(f"[hub {hub}] long-haul: {len(lh_combos)} buscas")
-            lh_results = await asyncio.gather(
-                *[
-                    self._throttled_fetch(origin, hub, d, req.max_connections, req.max_duration_hours)
-                    for origin, hub, d in lh_combos
-                ]
-            )
-            for (origin, _, d), slices in zip(lh_combos, lh_results):
+        # ── Phase 1: probe all candidates on probe_date ──────────────────────
+        self._emit(f"[fase 1] testando {len(req.hub_candidates)} candidatos em {probe_date.strftime('%d/%m')}…")
+        probe_combos = [(origin, hub) for origin in req.origins for hub in req.hub_candidates]
+        probe_results = await asyncio.gather(*[
+            self._throttled_fetch(origin, hub, probe_date, req.max_connections, req.max_duration_hours)
+            for origin, hub in probe_combos
+        ])
+
+        # Rank hubs by cheapest price from any origin
+        hub_best: dict[str, Decimal] = {}
+        probe_slices: dict[tuple, list[OfferSlice]] = {}
+        for (origin, hub), slices in zip(probe_combos, probe_results):
+            probe_slices[(origin, hub)] = slices
+            if slices:
+                best = min(slices, key=lambda s: s.price).price
+                if hub not in hub_best or best < hub_best[hub]:
+                    hub_best[hub] = best
+
+        selected_hubs = sorted(hub_best, key=lambda h: hub_best[h])[:req.top_k_hubs]
+        if not selected_hubs:
+            # Fallback: no probe results — use first K candidates
+            selected_hubs = req.hub_candidates[:req.top_k_hubs]
+            self._emit(f"  ⚠ probe sem resultados — usando fallback: {selected_hubs}")
+        else:
+            summary = " · ".join(f"{h} R${int(hub_best[h])}" for h in selected_hubs)
+            self._emit(f"[hubs selecionados] {summary}")
+
+        # ── Collect probe slices for selected hubs (reuse phase 1 data) ──────
+        all_lh_slices: list[OfferSlice] = []
+        for hub in selected_hubs:
+            for origin in req.origins:
+                slices = probe_slices.get((origin, hub), [])
                 all_lh_slices.extend(slices)
                 if slices:
                     best = min(slices, key=lambda s: s.price)
-                    self._emit(f"  ✓ {origin}→{hub} {d.strftime('%d/%m')} · {best.airline or '—'} · {_fmt_duration(best.duration_minutes)} · R${int(best.price)}")
+                    self._emit(
+                        f"  ✓ {origin}→{hub} {probe_date.strftime('%d/%m')} · "
+                        f"{best.airline or '—'} · {_fmt_duration(best.duration_minutes)} · R${int(best.price)}"
+                    )
                 else:
-                    self._emit(f"  – {origin}→{hub} {d.strftime('%d/%m')} sem resultado")
+                    self._emit(f"  – {origin}→{hub} {probe_date.strftime('%d/%m')} sem resultado")
 
-            # ── Intra-EU searches for this hub ──
+        all_eu_slices: list[OfferSlice] = []
+        all_direct_slices: list[OfferSlice] = []
+
+        # ── Phase 2: full matrix for selected hubs ───────────────────────────
+        for hub in selected_hubs:
+            # Long-haul: remaining dates (probe_date already done above)
+            if remaining_dates:
+                lh_combos = [(origin, hub, d) for origin in req.origins for d in remaining_dates]
+                lh_results = await asyncio.gather(*[
+                    self._throttled_fetch(origin, hub, d, req.max_connections, req.max_duration_hours)
+                    for origin, hub, d in lh_combos
+                ])
+                for (origin, _, d), slices in zip(lh_combos, lh_results):
+                    all_lh_slices.extend(slices)
+                    if slices:
+                        best = min(slices, key=lambda s: s.price)
+                        self._emit(
+                            f"  ✓ {origin}→{hub} {d.strftime('%d/%m')} · "
+                            f"{best.airline or '—'} · {_fmt_duration(best.duration_minutes)} · R${int(best.price)}"
+                        )
+                    else:
+                        self._emit(f"  – {origin}→{hub} {d.strftime('%d/%m')} sem resultado")
+
+            # Intra-EU: all dates
             eu_combos = [(hub, dest, d) for dest in req.destinations for d in date_range]
-            self._emit(f"[hub {hub}] intra-EU: {len(eu_combos)} buscas")
-            eu_results = await asyncio.gather(
-                *[
-                    self._throttled_fetch(hub, dest, d, req.max_connections, req.max_duration_hours)
-                    for hub, dest, d in eu_combos
-                ]
-            )
+            self._emit(f"[hub {hub}] intra: {len(eu_combos)} buscas")
+            eu_results = await asyncio.gather(*[
+                self._throttled_fetch(hub, dest, d, req.max_connections, req.max_duration_hours)
+                for hub, dest, d in eu_combos
+            ])
             for (_, dest, d), slices in zip(eu_combos, eu_results):
                 all_eu_slices.extend(slices)
                 if slices:
                     best = min(slices, key=lambda s: s.price)
-                    self._emit(f"  ✓ {hub}→{dest} {d.strftime('%d/%m')} · {best.airline or '—'} · {_fmt_duration(best.duration_minutes)} · R${int(best.price)}")
+                    self._emit(
+                        f"  ✓ {hub}→{dest} {d.strftime('%d/%m')} · "
+                        f"{best.airline or '—'} · {_fmt_duration(best.duration_minutes)} · R${int(best.price)}"
+                    )
                 else:
                     self._emit(f"  – {hub}→{dest} {d.strftime('%d/%m')} sem resultado")
 
-            # Emit partial matrix after each hub
+            # Emit partial after each hub
             if self._partial_fn:
                 partial = _build_matrix(
-                    req.origins, req.destinations, req.hubs, date_range,
+                    req.origins, req.destinations, selected_hubs, date_range,
                     all_lh_slices, all_eu_slices, all_direct_slices,
                     req.max_duration_hours, req.markup_fn,
                 )
@@ -140,26 +188,32 @@ class SplitTicketingEngine:
                 entries = sum(len(dates) for dests in partial.values() for dates in dests.values())
                 self._emit(f"[hub {hub}] ✓ concluído · {entries} combos na matrix parcial")
 
-        # ── Direct flight searches (origin → dest, no hub) ──
-        direct_combos = [(origin, dest, d) for origin in req.origins for dest in req.destinations for d in date_range]
+        # ── Direct searches ───────────────────────────────────────────────────
+        direct_combos = [
+            (origin, dest, d)
+            for origin in req.origins
+            for dest in req.destinations
+            for d in date_range
+        ]
         if direct_combos:
             self._emit(f"[direto] {len(direct_combos)} buscas")
-            direct_results = await asyncio.gather(
-                *[
-                    self._throttled_fetch(origin, dest, d, req.max_connections, req.max_duration_hours)
-                    for origin, dest, d in direct_combos
-                ]
-            )
+            direct_results = await asyncio.gather(*[
+                self._throttled_fetch(origin, dest, d, req.max_connections, req.max_duration_hours)
+                for origin, dest, d in direct_combos
+            ])
             for (origin, dest, d), slices in zip(direct_combos, direct_results):
                 all_direct_slices.extend(slices)
                 if slices:
                     best = min(slices, key=lambda s: s.price)
-                    self._emit(f"  ✓ {origin}→{dest} {d.strftime('%d/%m')} direto · {best.airline or '—'} · {_fmt_duration(best.duration_minutes)} · R${int(best.price)}")
+                    self._emit(
+                        f"  ✓ {origin}→{dest} {d.strftime('%d/%m')} direto · "
+                        f"{best.airline or '—'} · {_fmt_duration(best.duration_minutes)} · R${int(best.price)}"
+                    )
                 else:
-                    self._emit(f"  – {origin}→{dest} {d.strftime('%d/%m')} sem voo direto")
+                    self._emit(f"  – {origin}→{dest} {d.strftime('%d/%m')} sem direto")
 
         return _build_matrix(
-            req.origins, req.destinations, req.hubs, date_range,
+            req.origins, req.destinations, selected_hubs, date_range,
             all_lh_slices, all_eu_slices, all_direct_slices,
             req.max_duration_hours, req.markup_fn,
         )
@@ -175,7 +229,6 @@ class SplitTicketingEngine:
         async with self._request_lock:
             await self._sem.acquire()
             await asyncio.sleep(INTER_REQUEST_DELAY)
-
         try:
             return await self._fetch(origin, destination, d, max_connections, max_duration_hours)
         finally:
@@ -197,7 +250,6 @@ class SplitTicketingEngine:
         except Exception as exc:
             self._emit(f"  ✗ erro: {exc}")
             return []
-
         filtered = [
             o for o in offers
             if o.duration_minutes <= max_duration_hours * 60
@@ -276,7 +328,6 @@ def _build_matrix(
                     matrix[origin][dest][d.isoformat()] = best_split
 
                 elif direct is not None:
-                    # No split-ticket found — show direct as fallback
                     matrix[origin][dest][d.isoformat()] = MatrixEntry(
                         total_price=markup_fn(direct.price),
                         longhaul_price=Decimal(0),

@@ -8,7 +8,8 @@ interface Props {
 }
 
 const DATE_RANGE_DAYS = 10;
-const INTERNAL_HUBS = 8; // MAD, LIS, CDG, FRA, LHR, AMS, MUC, IST
+const HUB_CANDIDATES = 24; // pool probed in phase 1 (server-side)
+const TOP_K = 5;           // typical hubs selected after probe
 const MAX_COMBOS = 200;
 
 function todayPlus(n: number): string {
@@ -37,9 +38,11 @@ export function SearchForm({ onSubmit, loading }: Props) {
     : 0;
   const totalDays = outDays + retDays;
 
-  // (H*(origins+dests) + origins*dests) * total_days
-  const searchesPerDay = INTERNAL_HUBS * (originCodes.length + destCodes.length) + originCodes.length * destCodes.length;
-  const totalSearches = searchesPerDay * totalDays;
+  // Estimate: probe (1 day × candidates × origins) + phase2 (top_k × (ori+dest) × days) + direct
+  const probe = HUB_CANDIDATES * originCodes.length;
+  const direct = originCodes.length * destCodes.length * totalDays;
+  const phase2 = TOP_K * (originCodes.length + destCodes.length) * totalDays;
+  const totalSearches = probe + direct + phase2;
   const overLimit = totalSearches > MAX_COMBOS || destCodes.length > 5;
 
   function handleSubmit(e: React.FormEvent) {
@@ -143,7 +146,7 @@ export function SearchForm({ onSubmit, loading }: Props) {
 
       {/* Hubs info (read-only) */}
       <div style={{ fontSize: 10, fontFamily: "var(--mono)", color: "var(--muted)", background: "var(--bg-elevated)", borderRadius: 6, padding: "6px 10px" }}>
-        hubs automáticos: MAD · LIS · CDG · FRA · LHR · AMS · MUC · IST + voo direto
+        descoberta automática em 24 candidatos: Europa · Oriente Médio · MEX · PTY · MIA + voo direto
       </div>
 
       {/* Counter */}
