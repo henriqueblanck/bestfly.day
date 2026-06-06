@@ -13,6 +13,29 @@ function fmtPrice(v: number): string {
   return "R$" + Math.round(v).toLocaleString("pt-BR");
 }
 
+function findBestCell(matrix: Matrix, origin: string): PinnedLeg | null {
+  const destData = matrix[origin];
+  if (!destData) return null;
+  let best: PinnedLeg | null = null;
+  for (const dest of Object.keys(destData)) {
+    for (const [date, entry] of Object.entries(destData[dest])) {
+      if (!best || entry.total_price < best.price) {
+        best = {
+          price: entry.total_price,
+          dest,
+          date,
+          hub: entry.hub,
+          airline: entry.hub === "DIRECT"
+            ? (entry.direct_airline || "—")
+            : `${entry.longhaul_airline}+${entry.intraeu_airline}`,
+          origin,
+        };
+      }
+    }
+  }
+  return best;
+}
+
 function TotalBar({
   ida, volta, roundtripDirect,
 }: {
@@ -225,6 +248,14 @@ export default function App() {
       setMatrix(result.matrix);
       setReturnMatrix(result.return_matrix);
       if (result.roundtrip_direct) setRoundtripDirect(result.roundtrip_direct);
+
+      // Auto-pin best cells for roundtrip total
+      if (payload.trip_type === "roundtrip" && result.matrix && result.return_matrix) {
+        const bestIda = findBestCell(result.matrix, payload.origins[0]);
+        const bestVolta = findBestCell(result.return_matrix, payload.destinations[0]);
+        if (bestIda) setPinnedIda(bestIda);
+        if (bestVolta) setPinnedVolta(bestVolta);
+      }
     } catch (e: unknown) {
       if (e instanceof TimeoutWithPartialResult) {
         const entries = Object.values(e.matrix).flatMap((d) =>
@@ -356,7 +387,7 @@ export default function App() {
             )}
 
             {/* Total bar (roundtrip) */}
-            {tripType === "roundtrip" && (pinnedIda || pinnedVolta) && (
+            {tripType === "roundtrip" && hasMatrix && (
               <TotalBar ida={pinnedIda} volta={pinnedVolta} roundtripDirect={roundtripDirect} />
             )}
 

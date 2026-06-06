@@ -112,7 +112,7 @@ class SplitTicketingEngine:
             for o, h in hub_combos
         ]
         direct_probe_coros = [
-            self._throttled_fetch(o, d, probe_date, req.max_connections, req.max_duration_hours)
+            self._throttled_fetch(o, d, probe_date, min(req.max_connections + 1, 3), req.max_duration_hours)
             for o, d in direct_combos_probe
         ]
 
@@ -245,7 +245,7 @@ class SplitTicketingEngine:
             ]
             self._emit(f"[direto] {len(direct_combos_rem)} buscas (datas restantes)")
             direct_results = await asyncio.gather(*[
-                self._throttled_fetch(origin, dest, d, req.max_connections, req.max_duration_hours)
+                self._throttled_fetch(origin, dest, d, min(req.max_connections + 1, 3), req.max_duration_hours)
                 for origin, dest, d in direct_combos_rem
             ])
             for (origin, dest, d), slices in zip(direct_combos_rem, direct_results):

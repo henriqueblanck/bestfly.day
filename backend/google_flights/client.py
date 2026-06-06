@@ -224,6 +224,8 @@ class GoogleFlightsClient:
                             dep_time = raw_dt.strftime("%H:%M") if hasattr(raw_dt, "strftime") else str(raw_dt)[:5]
                         except Exception:
                             pass
+                raw_duration = r.duration or 0
+                duration_minutes = int(raw_duration) if raw_duration <= 2880 else 0
                 slices.append(
                     OfferSlice(
                         origin=origin,
@@ -232,7 +234,7 @@ class GoogleFlightsClient:
                         price=Decimal(str(r.price)),
                         currency=r.currency or "BRL",
                         offer_id=f"{origin}-{destination}-{departure_date}-{i}",
-                        duration_minutes=r.duration or 0,
+                        duration_minutes=duration_minutes,
                         connections=r.stops or 0,
                         airline=airline,
                         departure_time=dep_time,

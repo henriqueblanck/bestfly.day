@@ -587,7 +587,8 @@ function DirectSubRow({
             </td>
           );
         }
-        const dur = fmtDuration(entry.direct_duration_minutes);
+        const durMin = entry.direct_duration_minutes;
+        const dur = durMin > 0 && durMin <= 2880 ? fmtDuration(durMin) : null;
         const conn = connLabel(entry.direct_connections);
         const airline = entry.direct_airline || "—";
         const savings = entry.total_price < dp
@@ -609,7 +610,7 @@ function DirectSubRow({
               {fmtPrice(dp)}
             </div>
             <div style={{ fontSize: 9, color: "var(--ink-3)", marginTop: 2, display: "flex", justifyContent: "center", gap: 5, flexWrap: "wrap" }}>
-              <span>{dur}</span>
+              <span>{dur ?? "—"}</span>
               <span style={{ opacity: 0.5 }}>·</span>
               <span>{conn}</span>
               <span style={{ opacity: 0.5 }}>·</span>
