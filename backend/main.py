@@ -145,6 +145,59 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/api/debug/fli")
+async def debug_fli(origin: str = "GRU", destination: str = "MAD", date: str | None = None):
+    """Quick diagnostic: test fli for one route. Returns raw results or error."""
+    from datetime import date as DateType, timedelta
+    from fli.models import Airport, FlightSearchFilters, FlightSegment, MaxStops, PassengerInfo, TripType
+    from fli.search.flights import SearchFlights
+
+    test_date = DateType.fromisoformat(date) if date else DateType.today() + timedelta(days=30)
+
+    # Check Airport enum
+    try:
+        origin_ap = Airport[origin]
+    except KeyError:
+        return {"ok": False, "error": f"Airport enum missing: {origin}"}
+    try:
+        dest_ap = Airport[destination]
+    except KeyError:
+        return {"ok": False, "error": f"Airport enum missing: {destination}"}
+
+    def _test():
+        searcher = SearchFlights()
+        filters = FlightSearchFilters(
+            trip_type=TripType.ONE_WAY,
+            passenger_info=PassengerInfo(adults=1),
+            flight_segments=[FlightSegment(
+                departure_airport=[[origin_ap, 0]],
+                arrival_airport=[[dest_ap, 0]],
+                travel_date=test_date.isoformat(),
+                max_stops=MaxStops.ONE_STOP_OR_FEWER,
+            )],
+        )
+        try:
+            results = searcher.search(filters, top_n=5, currency="BRL")
+            if not results:
+                return {"ok": False, "error": "fli returned None/empty — likely Google rate-limit or IP block"}
+            return {
+                "ok": True,
+                "count": len(results),
+                "first": {
+                    "price": results[0].price,
+                    "currency": results[0].currency,
+                    "duration": results[0].duration,
+                    "stops": results[0].stops,
+                    "airline": results[0].legs[0].airline.value if results[0].legs and results[0].legs[0].airline else None,
+                },
+            }
+        except Exception as e:
+            return {"ok": False, "error": str(e), "type": type(e).__name__}
+
+    import asyncio
+    return await asyncio.to_thread(_test)
+
+
 def _purge_old_jobs() -> None:
     cutoff = time.time() - _JOB_TTL_SECONDS
     to_delete = [
