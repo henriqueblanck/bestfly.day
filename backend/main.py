@@ -162,6 +162,91 @@ async def price_history(origin: str, destination: str, flight_date: str, days_ba
     return {"origin": origin, "destination": destination, "flight_date": flight_date, "history": rows}
 
 
+_HUB_CANDIDATES = [
+    # Europa — principais
+    "MAD", "LIS", "CDG", "AMS", "FRA", "MUC", "LHR", "FCO", "MXP", "ZRH",
+    # Europa — secundários
+    "BCN", "ORY", "LGW", "DUS", "HAM", "BER", "VIE", "BRU", "DUB",
+    "CPH", "ARN", "OSL", "HEL", "ATH", "WAW", "PRG", "BUD",
+    # Médio Oriente / Turquia (hubs transatlânticos relevantes)
+    "IST", "DXB", "DOH", "AUH",
+    # África (conexões relevantes)
+    "ADD", "NBO", "JNB",
+    # Américas (hubs de conexão)
+    "MEX", "BOG", "PTY", "EZE", "SCL", "LIM",
+]
+
+
+@app.get("/api/debug/hubs")
+async def discover_hubs(origin: str = "GRU", date: str | None = None):
+    """Test which hub candidates have flights from origin via fli."""
+    from datetime import date as DateType, timedelta
+    from fli.models import Airport, FlightSearchFilters, FlightSegment, MaxStops, PassengerInfo, TripType
+    from fli.search.flights import SearchFlights
+
+    test_date = DateType.fromisoformat(date) if date else DateType.today() + timedelta(days=30)
+
+    async def test_hub(hub: str) -> dict:
+        try:
+            Airport[origin]
+            Airport[hub]
+        except KeyError as e:
+            return {"hub": hub, "status": "unknown_iata", "detail": str(e)}
+
+        def _search():
+            try:
+                searcher = SearchFlights()
+                filters = FlightSearchFilters(
+                    trip_type=TripType.ONE_WAY,
+                    passenger_info=PassengerInfo(adults=1),
+                    flight_segments=[FlightSegment(
+                        departure_airport=[[Airport[origin], 0]],
+                        arrival_airport=[[Airport[hub], 0]],
+                        travel_date=test_date.isoformat(),
+                        max_stops=MaxStops.ONE_STOP_OR_FEWER,
+                    )],
+                )
+                results = searcher.search(filters, top_n=3, currency="BRL")
+                if not results:
+                    return {"hub": hub, "status": "no_results"}
+                best = min(results, key=lambda r: r.price or float("inf"))
+                airline = best.legs[0].airline.value if best.legs and best.legs[0].airline else "?"
+                return {
+                    "hub": hub,
+                    "status": "ok",
+                    "price_brl": best.price,
+                    "duration_min": best.duration,
+                    "stops": best.stops,
+                    "airline": airline,
+                }
+            except Exception as e:
+                return {"hub": hub, "status": "error", "detail": str(e)}
+
+        return await asyncio.to_thread(_search)
+
+    # Test 4 at a time to avoid hammering Google
+    sem = asyncio.Semaphore(4)
+
+    async def throttled(hub):
+        async with sem:
+            result = await test_hub(hub)
+            await asyncio.sleep(1.0)
+            return result
+
+    results = await asyncio.gather(*[throttled(h) for h in _HUB_CANDIDATES])
+    ok = [r for r in results if r["status"] == "ok"]
+    other = [r for r in results if r["status"] != "ok"]
+    ok.sort(key=lambda r: r.get("price_brl") or float("inf"))
+
+    return {
+        "origin": origin,
+        "date": test_date.isoformat(),
+        "found": len(ok),
+        "hubs_with_flights": ok,
+        "hubs_no_results": other,
+    }
+
+
 @app.get("/api/debug/fli")
 async def debug_fli(origin: str = "GRU", destination: str = "MAD", date: str | None = None):
     """Quick diagnostic: test fli for one route. Returns raw results or error."""
