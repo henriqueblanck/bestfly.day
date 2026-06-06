@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import "./styles.css";
 import { Landing } from "./components/Landing";
 import { SearchForm } from "./components/SearchForm";
@@ -43,7 +43,7 @@ export default function App() {
     setLogs((prev) => [...prev, ...lines]);
   }, []);
 
-  const seenStatuses = new Set<string>();
+  const seenStatuses = useRef(new Set<string>());
 
   function engineLogToLine(raw: string): LogLine {
     if (raw.startsWith("  ✓")) return { kind: "ok", text: raw.trim() };
@@ -58,7 +58,7 @@ export default function App() {
     setLoading(true);
     setError(null);
     setMatrix(null);
-    seenStatuses.clear();
+    seenStatuses.current.clear();
     setLogs([
       { kind: "info", text: `${payload.origins.join(", ")} → ${payload.destinations.join(", ")}` },
       { kind: "info", text: `Hubs: ${payload.hubs.join(", ")} · ${payload.date_from} → ${payload.date_to}` },
@@ -71,8 +71,8 @@ export default function App() {
       addLog({ kind: "ok", text: `Job ${jobId.slice(0, 8)}… iniciado` });
 
       const result = await waitForMatrix(jobId, (status, newLogs) => {
-        if (!seenStatuses.has(status)) {
-          seenStatuses.add(status);
+        if (!seenStatuses.current.has(status)) {
+          seenStatuses.current.add(status);
           const msg = STATUS_ONCE[status];
           if (msg) addLog(msg);
         }

@@ -2,6 +2,7 @@
 import uuid
 import asyncio
 import logging
+import time
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -16,6 +17,7 @@ from engine.split_ticketing import SearchRequest, SplitTicketingEngine
 log = logging.getLogger(__name__)
 
 jobs: dict[str, dict[str, Any]] = {}
+_JOB_TTL_SECONDS = 3600  # purge completed/failed jobs after 1h
 
 app = FastAPI(title="BestFly — Flight Price Matrix")
 app.add_middleware(
@@ -143,10 +145,21 @@ async def health():
     return {"status": "ok"}
 
 
+def _purge_old_jobs() -> None:
+    cutoff = time.time() - _JOB_TTL_SECONDS
+    to_delete = [
+        jid for jid, j in jobs.items()
+        if j["status"] in ("complete", "failed") and j.get("created_at", 0) < cutoff
+    ]
+    for jid in to_delete:
+        del jobs[jid]
+
+
 @app.post("/api/search", response_model=JobResponse, status_code=202)
 async def start_search(body: SearchInput, background: BackgroundTasks):
+    _purge_old_jobs()
     job_id = str(uuid.uuid4())
-    jobs[job_id] = {"status": "queued", "matrix": None, "logs": [], "error": None}
+    jobs[job_id] = {"status": "queued", "matrix": None, "logs": [], "error": None, "created_at": time.time()}
     background.add_task(_run_search, job_id, body)
     return JobResponse(job_id=job_id, status="queued")
 

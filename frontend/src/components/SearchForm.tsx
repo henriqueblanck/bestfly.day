@@ -30,8 +30,8 @@ export function SearchForm({ onSubmit, loading }: Props) {
 
   const days = dateFrom && dateTo ? Math.max(1, Math.round((new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / 86400000) + 1) : 1;
   const longhaulSearches = originCodes.length * hubs.length * days;
-  const intraeуSearches = hubs.length * destCodes.length * days;
-  const totalSearches = longhaulSearches + intraeуSearches;
+  const intraeUSearches = hubs.length * destCodes.length * days;
+  const totalSearches = longhaulSearches + intraeUSearches;
   const overLimit = totalSearches > MAX_COMBOS || destCodes.length > 5;
 
   function toggleHub(hub: string) {

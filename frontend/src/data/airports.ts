@@ -77,7 +77,6 @@ export const AIRPORTS: Airport[] = [
   { iata: "ARN", name: "Arlanda", city: "Estocolmo", country: "SE" },
   { iata: "OSL", name: "Gardermoen", city: "Oslo", country: "NO" },
   { iata: "HEL", name: "Vantaa", city: "Helsinque", country: "FI" },
-  { iata: "LIS", name: "Humberto Delgado", city: "Lisboa", country: "PT" },
   { iata: "DUS", name: "Düsseldorf Intl", city: "Düsseldorf", country: "DE" },
   { iata: "HAM", name: "Hamburg Intl", city: "Hamburgo", country: "DE" },
   { iata: "BER", name: "Brandenburg", city: "Berlim", country: "DE" },

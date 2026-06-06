@@ -13,7 +13,7 @@ from decimal import Decimal
 from typing import Callable
 
 from config import settings
-from google_flights.client import GoogleFlightsClient, OfferSlice
+from google_flights.client import GoogleFlightsClient, OfferSlice, UnknownAirportError
 
 log = logging.getLogger(__name__)
 
@@ -128,16 +128,20 @@ class SplitTicketingEngine:
     ) -> list[OfferSlice]:
         try:
             offers = await self._client.search_one_way(origin, destination, d, max_connections)
+        except UnknownAirportError as e:
+            self._emit(f"  ✗ {e}")
+            return []
         except Exception as exc:
             self._emit(f"  ✗ erro: {exc}")
             return []
+
         filtered = [
             o for o in offers
             if o.duration_minutes <= max_duration_hours * 60
             and o.connections <= max_connections
         ]
         if offers and not filtered:
-            self._emit(f"  – {len(offers)} resultados filtrados (duração/escalas)")
+            self._emit(f"  – {len(offers)} resultado(s) filtrados (duração/escalas)")
         return filtered
 
 
@@ -193,10 +197,6 @@ def _build_matrix(
 
 def _date_range(start: date, end: date) -> list[date]:
     return [start + timedelta(days=i) for i in range((end - start).days + 1)]
-
-
-def _flatten(nested):
-    return [item for sublist in nested for item in sublist]
 
 
 def _fmt_duration(minutes: int) -> str:
