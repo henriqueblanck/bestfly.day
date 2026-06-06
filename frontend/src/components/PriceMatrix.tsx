@@ -103,6 +103,7 @@ export interface PinnedLeg {
   hub: string;
   airline: string;
   origin: string;
+  direct_price: number | null;
 }
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -573,6 +574,7 @@ function MatrixCell({
               hub: entry.hub,
               airline: entry.hub === "DIRECT" ? (entry.direct_airline || "—") : `${entry.longhaul_airline}+${entry.intraeu_airline}`,
               origin,
+              direct_price: entry.direct_price ?? null,
             });
           }}
           title={isPinned ? "Selecionado" : "Selecionar para cálculo total"}

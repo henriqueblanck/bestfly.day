@@ -29,6 +29,7 @@ function findBestCell(matrix: Matrix, origin: string): PinnedLeg | null {
             ? (entry.direct_airline || "—")
             : `${entry.longhaul_airline}+${entry.intraeu_airline}`,
           origin,
+          direct_price: entry.direct_price ?? null,
         };
       }
     }
@@ -43,25 +44,41 @@ function TotalBar({
   volta: PinnedLeg | null;
   roundtripDirect: Record<string, Record<string, Record<string, RoundTripDirectOffer>>> | null;
 }) {
-  const splitTotal = (ida?.price ?? 0) + (volta?.price ?? 0);
   const bothSelected = !!(ida && volta);
 
-  // Look up round-trip offer for the exact pinned outbound date.
-  // Fall back to the cheapest available date if the exact date wasn't searched.
+  // ① Split-ticket total (two separate one-way bookings)
+  const splitTotal = (ida?.price ?? 0) + (volta?.price ?? 0);
+
+  // ② Single-ticket pair: cheapest one-way each leg (may include connections like Avianca via BOG)
+  //    direct_price is already in each matrix cell from the one-way engine baseline search
+  const pairTotal: number | null =
+    ida?.direct_price != null && volta?.direct_price != null
+      ? ida.direct_price + volta.direct_price
+      : null;
+
+  // ③ fli round-trip consolidated fare — look up exact pinned date, fall back to cheapest
   const rt = (() => {
     if (!ida || !volta) return null;
     const byDate = roundtripDirect?.[ida.origin]?.[ida.dest];
     if (!byDate) return null;
     if (byDate[ida.date]) return byDate[ida.date];
-    // fallback: cheapest across all searched dates
     return Object.values(byDate).reduce<RoundTripDirectOffer | null>(
       (best, o) => (!best || o.total < best.total ? o : best),
       null,
     );
   })();
   const rtTotal = rt?.total ?? null;
-  const splitWins = bothSelected && rtTotal != null && splitTotal < rtTotal;
-  const rtWins = bothSelected && rtTotal != null && rtTotal <= splitTotal;
+
+  // Best across all three options
+  const options = [splitTotal, pairTotal, rtTotal].filter((v): v is number => v != null);
+  const best = options.length ? Math.min(...options) : null;
+
+  function col(v: number | null) {
+    return best != null && v != null && v === best ? "var(--green)" : "var(--ink-2)";
+  }
+  function winner(v: number | null) {
+    return best != null && v != null && v === best;
+  }
 
   return (
     <div style={{
@@ -95,47 +112,61 @@ function TotalBar({
         ) : <span style={{ fontSize: 12, color: "var(--ink-3)" }}>selecione uma célula →</span>}
       </div>
 
-      {/* Totals comparison */}
+      {/* 3-way comparison */}
       {bothSelected && (
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", borderTop: "1px solid var(--line)", paddingTop: 10, alignItems: "flex-end" }}>
-          {/* Split total */}
-          <div style={{ flex: 1 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", borderTop: "1px solid var(--line)", paddingTop: 10, alignItems: "flex-end" }}>
+
+          {/* ① Split */}
+          <div style={{ flex: 1, minWidth: 100 }}>
             <div style={{ fontSize: 9, color: "var(--ink-3)", marginBottom: 2, letterSpacing: 0.8 }}>
-              {splitWins ? "✦ MELHOR · " : ""}SPLIT-TICKET
+              {winner(splitTotal) ? "✦ MELHOR · " : ""}SPLIT-TICKET
             </div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: splitWins ? "var(--green)" : "var(--ink-2)", letterSpacing: "-0.03em" }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: col(splitTotal), letterSpacing: "-0.03em" }}>
               {fmtPrice(splitTotal)}
             </div>
           </div>
 
-          {/* Round-trip direct */}
-          {rtTotal != null && (
+          <div style={{ color: "var(--line-2)", alignSelf: "center", fontSize: 11 }}>vs</div>
+
+          {/* ② Single-ticket pair (one-way × 2) */}
+          {pairTotal != null && (
             <>
-              <div style={{ fontSize: 13, color: "var(--ink-3)", alignSelf: "center" }}>vs</div>
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: 1, minWidth: 100 }}>
                 <div style={{ fontSize: 9, color: "var(--ink-3)", marginBottom: 2, letterSpacing: 0.8 }}>
-                  {rtWins ? "✦ MELHOR · " : ""}PASSAGEM ÚNICA{rt?.outbound_airline ? ` · ${rt.outbound_airline}` : ""}
+                  {winner(pairTotal) ? "✦ MELHOR · " : ""}2× IDA SIMPLES
                 </div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: rtWins ? "var(--green)" : "var(--ink-2)", letterSpacing: "-0.03em" }}>
-                  {fmtPrice(rtTotal)}
+                <div style={{ fontSize: 18, fontWeight: 700, color: col(pairTotal), letterSpacing: "-0.03em" }}>
+                  {fmtPrice(pairTotal)}
                 </div>
-                {splitWins && (
+                {winner(pairTotal) && splitTotal > pairTotal && (
                   <div style={{ fontSize: 9, color: "var(--green)", marginTop: 2 }}>
-                    split economiza {fmtPrice(rtTotal - splitTotal)} ({Math.round((rtTotal - splitTotal) / rtTotal * 100)}%)
-                  </div>
-                )}
-                {rtWins && (
-                  <div style={{ fontSize: 9, color: "var(--green)", marginTop: 2 }}>
-                    passagem única economiza {fmtPrice(splitTotal - rtTotal)}
+                    economiza {fmtPrice(splitTotal - pairTotal)} vs split
                   </div>
                 )}
               </div>
+              <div style={{ color: "var(--line-2)", alignSelf: "center", fontSize: 11 }}>vs</div>
             </>
           )}
 
-          {rtTotal == null && (
-            <div style={{ fontSize: 11, color: "var(--ink-3)", alignSelf: "center", fontStyle: "italic" }}>
-              buscando passagem única…
+          {/* ③ fli round-trip */}
+          {rtTotal != null ? (
+            <div style={{ flex: 1, minWidth: 100 }}>
+              <div style={{ fontSize: 9, color: "var(--ink-3)", marginBottom: 2, letterSpacing: 0.8 }}>
+                {winner(rtTotal) ? "✦ MELHOR · " : ""}IDA+VOLTA ÚNICO{rt?.outbound_airline ? ` · ${rt.outbound_airline}` : ""}
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: col(rtTotal), letterSpacing: "-0.03em" }}>
+                {fmtPrice(rtTotal)}
+              </div>
+              {winner(rtTotal) && (
+                <div style={{ fontSize: 9, color: "var(--green)", marginTop: 2 }}>
+                  economiza {fmtPrice(splitTotal - rtTotal)} vs split
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{ flex: 1, minWidth: 100 }}>
+              <div style={{ fontSize: 9, color: "var(--ink-3)", marginBottom: 2, letterSpacing: 0.8 }}>IDA+VOLTA ÚNICO</div>
+              <div style={{ fontSize: 11, color: "var(--ink-3)", fontStyle: "italic" }}>buscando…</div>
             </div>
           )}
         </div>
