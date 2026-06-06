@@ -23,21 +23,26 @@ _JOB_TTL_SECONDS = 3600
 
 # Candidate pool — engine probes all of these and picks the best for each search
 HUB_CANDIDATES = [
-    # Europe — primary transatlantic hubs
+    # Europe — primary transatlantic hubs (major flag carriers)
     "MAD", "LIS", "CDG", "FRA", "LHR", "AMS", "MUC", "FCO", "ZRH",
-    # Europe — secondary
+    # Europe — secondary + low-cost bases (Ryanair, easyJet, Vueling, Wizz)
     "BCN", "VIE", "BRU", "DUB", "IST", "ATH",
-    # Middle East — strong global hubs
+    "ORY", "LGW", "BER", "WAW", "OPO",
+    # Middle East — Qatar / Emirates / Etihad global connectors
     "DOH", "DXB", "AUH",
-    # North America — Air Canada / alliance connections (YUL/YYZ cheaper than direct)
-    "YUL", "YYZ", "JFK", "ORD",
-    # Latin America / Caribbean — non-obvious intermediate connections
-    "MEX", "PTY", "BOG", "MIA",
-    # Africa
-    "ADD",
+    # North America — full major alliance coverage
+    "YUL", "YYZ",            # Air Canada
+    "JFK", "EWR", "ORD",     # United / multiple carriers
+    "ATL", "IAD", "DFW",     # Delta GRU-ATL, United GRU-IAD, American GRU-DFW
+    # Latin America — Aeromexico, Copa, Avianca, LATAM hubs
+    "MEX", "PTY", "BOG", "MIA", "LIM", "SCL",
+    # Africa — Ethiopian Airlines (ADD does GRU→ADD→Europe directly)
+    "ADD", "CMN",
+    # Asia — selective long-shots (Korean Air, Singapore Airlines)
+    "ICN", "SIN",
 ]
 
-MAX_SEARCHES = 200
+MAX_SEARCHES = 500
 
 app = FastAPI(title="BestFly — Flight Price Matrix")
 

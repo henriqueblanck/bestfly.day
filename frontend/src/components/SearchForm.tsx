@@ -8,9 +8,9 @@ interface Props {
 }
 
 const DATE_RANGE_DAYS = 10;
-const HUB_CANDIDATES = 28; // pool probed in phase 1 (server-side)
-const TOP_K = 5;           // typical hubs selected after probe
-const MAX_COMBOS = 200;
+const HUB_CANDIDATES = 42; // pool probed in phase 1 (server-side)
+const TOP_K = 4;           // typical hubs selected after probe (dynamic, depends on budget)
+const MAX_COMBOS = 500;
 
 function todayPlus(n: number): string {
   const d = new Date();
@@ -147,7 +147,7 @@ export function SearchForm({ onSubmit, loading }: Props) {
 
       {/* Hubs info (read-only) */}
       <div style={{ fontSize: 10, fontFamily: "var(--mono)", color: "var(--muted)", background: "var(--bg-elevated)", borderRadius: 6, padding: "6px 10px" }}>
-        descoberta automática em 28 candidatos: Europa · Oriente Médio · YUL · YYZ · JFK · ORD · MEX · PTY · MIA + voo direto
+        42 candidatos: Europa · Oriente Médio · N.América (ATL·DFW·IAD·EWR·ORD) · LATAM (MEX·PTY·BOG·LIM·SCL) · ADD · CMN · ICN · SIN + direto
       </div>
 
       {/* Counter */}
