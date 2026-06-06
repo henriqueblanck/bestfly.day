@@ -13,6 +13,7 @@ from pydantic import BaseModel, field_validator, model_validator
 
 from config import settings
 from engine.split_ticketing import SearchRequest, SplitTicketingEngine
+from google_flights.client import GoogleFlightsClient, UnknownAirportError
 import db
 
 log = logging.getLogger(__name__)
@@ -117,6 +118,7 @@ class JobResponse(BaseModel):
     status: str
     matrix: dict | None = None
     return_matrix: dict | None = None
+    roundtrip_direct: dict | None = None
     logs: list[str] = []
     error: str | None = None
 
@@ -188,6 +190,42 @@ async def _run_search(job_id: str, req: SearchInput):
             )
             return_matrix = await ret_engine.compute(return_req)
             jobs[job_id]["return_matrix"] = _serialize_matrix(return_matrix)
+
+            # ── Round-trip direct baseline ──
+            # Probe one representative pair per origin↔dest to capture
+            # consolidated round-trip fares (often cheaper than 2× one-way)
+            rt_client = GoogleFlightsClient()
+            out_mid = req.date_from + (req.date_to - req.date_from) // 2
+            ret_mid = req.return_date_from + (ret_end - req.return_date_from) // 2
+            rt_results: dict[str, dict[str, Any]] = {}
+            for origin in req.origins:
+                for dest in req.destinations:
+                    on_log(f"[roundtrip-direto] {origin}↔{dest} {out_mid}/{ret_mid}…")
+                    try:
+                        offer = await rt_client.search_round_trip(
+                            origin, dest, out_mid, ret_mid, req.max_connections
+                        )
+                        if offer:
+                            rt_results.setdefault(origin, {})[dest] = {
+                                "total": float(offer.total_price),
+                                "outbound": float(offer.outbound_price),
+                                "return": float(offer.return_price),
+                                "outbound_airline": offer.outbound_airline,
+                                "return_airline": offer.return_airline,
+                                "outbound_duration_minutes": offer.outbound_duration_minutes,
+                                "return_duration_minutes": offer.return_duration_minutes,
+                                "outbound_connections": offer.outbound_connections,
+                                "return_connections": offer.return_connections,
+                                "outbound_date": out_mid.isoformat(),
+                                "return_date": ret_mid.isoformat(),
+                            }
+                            on_log(f"  ✓ roundtrip {origin}↔{dest} R${int(offer.total_price)}")
+                    except UnknownAirportError as e:
+                        on_log(f"  ✗ {e}")
+                    except Exception as exc:
+                        on_log(f"  ✗ roundtrip erro: {exc}")
+            if rt_results:
+                jobs[job_id]["roundtrip_direct"] = rt_results
 
         jobs[job_id]["status"] = "complete"
     except Exception as exc:
@@ -416,6 +454,7 @@ async def get_result(job_id: str):
         status=job["status"],
         matrix=job.get("matrix"),
         return_matrix=job.get("return_matrix"),
+        roundtrip_direct=job.get("roundtrip_direct"),
         logs=job.get("logs", []),
         error=job.get("error"),
     )

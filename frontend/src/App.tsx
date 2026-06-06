@@ -6,16 +6,30 @@ import { PriceMatrix } from "./components/PriceMatrix";
 import type { PinnedLeg } from "./components/PriceMatrix";
 import { TerminalLog } from "./components/TerminalLog";
 import { startSearch, waitForMatrix, TimeoutWithPartialResult } from "./api/search";
-import type { Matrix, SearchPayload } from "./api/search";
+import type { Matrix, SearchPayload, RoundTripDirectOffer } from "./api/search";
 import type { LogLine } from "./components/TerminalLog";
 
 function fmtPrice(v: number): string {
   return "R$" + Math.round(v).toLocaleString("pt-BR");
 }
 
-function TotalBar({ ida, volta }: { ida: PinnedLeg | null; volta: PinnedLeg | null }) {
-  const total = (ida?.price ?? 0) + (volta?.price ?? 0);
-  const bothSelected = ida && volta;
+function TotalBar({
+  ida, volta, roundtripDirect,
+}: {
+  ida: PinnedLeg | null;
+  volta: PinnedLeg | null;
+  roundtripDirect: Record<string, Record<string, RoundTripDirectOffer>> | null;
+}) {
+  const splitTotal = (ida?.price ?? 0) + (volta?.price ?? 0);
+  const bothSelected = !!(ida && volta);
+
+  const rt = ida && volta
+    ? roundtripDirect?.[ida.origin]?.[ida.dest] ?? null
+    : null;
+  const rtTotal = rt?.total ?? null;
+  const splitWins = bothSelected && rtTotal != null && splitTotal < rtTotal;
+  const rtWins = bothSelected && rtTotal != null && rtTotal <= splitTotal;
+
   return (
     <div style={{
       background: bothSelected ? "var(--green-bg)" : "var(--surface)",
@@ -25,38 +39,72 @@ function TotalBar({ ida, volta }: { ida: PinnedLeg | null; volta: PinnedLeg | nu
       marginBottom: 20,
       fontFamily: "var(--mono)",
       display: "flex",
-      alignItems: "center",
-      gap: 16,
-      flexWrap: "wrap",
+      flexDirection: "column",
+      gap: 10,
       animation: "fade-in 0.2s ease",
     }}>
-      <div style={{ display: "flex", gap: 10, flex: 1, flexWrap: "wrap", alignItems: "center" }}>
+      {/* Legs row */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
         <span style={{ fontSize: 11, color: "var(--ink-3)" }}>IDA</span>
         {ida ? (
           <span style={{ fontSize: 13, color: "var(--ink)" }}>
             {ida.origin}→{ida.dest} · {new Date(ida.date + "T12:00").toLocaleDateString("pt-BR", { day: "numeric", month: "short" })}
             <span style={{ color: "var(--green)", fontWeight: 700, marginLeft: 6 }}>{fmtPrice(ida.price)}</span>
           </span>
-        ) : (
-          <span style={{ fontSize: 12, color: "var(--ink-3)" }}>selecione uma célula →</span>
-        )}
-        <span style={{ color: "var(--line-2)", fontSize: 14 }}>+</span>
+        ) : <span style={{ fontSize: 12, color: "var(--ink-3)" }}>selecione uma célula →</span>}
+        <span style={{ color: "var(--line-2)" }}>+</span>
         <span style={{ fontSize: 11, color: "var(--ink-3)" }}>VOLTA</span>
         {volta ? (
           <span style={{ fontSize: 13, color: "var(--ink)" }}>
             {volta.origin}→{volta.dest} · {new Date(volta.date + "T12:00").toLocaleDateString("pt-BR", { day: "numeric", month: "short" })}
             <span style={{ color: "var(--green)", fontWeight: 700, marginLeft: 6 }}>{fmtPrice(volta.price)}</span>
           </span>
-        ) : (
-          <span style={{ fontSize: 12, color: "var(--ink-3)" }}>selecione uma célula →</span>
-        )}
+        ) : <span style={{ fontSize: 12, color: "var(--ink-3)" }}>selecione uma célula →</span>}
       </div>
+
+      {/* Totals comparison */}
       {bothSelected && (
-        <div style={{ textAlign: "right", flexShrink: 0 }}>
-          <div style={{ fontSize: 10, color: "var(--ink-3)", marginBottom: 2 }}>TOTAL IDA + VOLTA</div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: "var(--green)", letterSpacing: "-0.03em" }}>
-            {fmtPrice(total)}
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", borderTop: "1px solid var(--line)", paddingTop: 10, alignItems: "flex-end" }}>
+          {/* Split total */}
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 9, color: "var(--ink-3)", marginBottom: 2, letterSpacing: 0.8 }}>
+              {splitWins ? "✦ MELHOR · " : ""}SPLIT-TICKET
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: splitWins ? "var(--green)" : "var(--ink-2)", letterSpacing: "-0.03em" }}>
+              {fmtPrice(splitTotal)}
+            </div>
           </div>
+
+          {/* Round-trip direct */}
+          {rtTotal != null && (
+            <>
+              <div style={{ fontSize: 13, color: "var(--ink-3)", alignSelf: "center" }}>vs</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 9, color: "var(--ink-3)", marginBottom: 2, letterSpacing: 0.8 }}>
+                  {rtWins ? "✦ MELHOR · " : ""}PASSAGEM ÚNICA{rt?.outbound_airline ? ` · ${rt.outbound_airline}` : ""}
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: rtWins ? "var(--green)" : "var(--ink-2)", letterSpacing: "-0.03em" }}>
+                  {fmtPrice(rtTotal)}
+                </div>
+                {splitWins && (
+                  <div style={{ fontSize: 9, color: "var(--green)", marginTop: 2 }}>
+                    split economiza {fmtPrice(rtTotal - splitTotal)} ({Math.round((rtTotal - splitTotal) / rtTotal * 100)}%)
+                  </div>
+                )}
+                {rtWins && (
+                  <div style={{ fontSize: 9, color: "var(--green)", marginTop: 2 }}>
+                    passagem única economiza {fmtPrice(splitTotal - rtTotal)}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {rtTotal == null && (
+            <div style={{ fontSize: 11, color: "var(--ink-3)", alignSelf: "center", fontStyle: "italic" }}>
+              buscando passagem única…
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -111,6 +159,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [pinnedIda, setPinnedIda] = useState<PinnedLeg | null>(null);
   const [pinnedVolta, setPinnedVolta] = useState<PinnedLeg | null>(null);
+  const [roundtripDirect, setRoundtripDirect] = useState<Record<string, Record<string, RoundTripDirectOffer>> | null>(null);
 
   const addLog = useCallback((line: LogLine) => {
     setLogs((prev) => [...prev, line]);
@@ -141,6 +190,7 @@ export default function App() {
     setLeg("ida");
     setPinnedIda(null);
     setPinnedVolta(null);
+    setRoundtripDirect(null);
     seenStatuses.current.clear();
     setTripType(payload.trip_type);
     setLogs([
@@ -174,6 +224,7 @@ export default function App() {
       addLog({ kind: "ok", text: `✦ Matrix completa — ${totalRoutes} rotas com preço` });
       setMatrix(result.matrix);
       setReturnMatrix(result.return_matrix);
+      if (result.roundtrip_direct) setRoundtripDirect(result.roundtrip_direct);
     } catch (e: unknown) {
       if (e instanceof TimeoutWithPartialResult) {
         const entries = Object.values(e.matrix).flatMap((d) =>
@@ -306,7 +357,7 @@ export default function App() {
 
             {/* Total bar (roundtrip) */}
             {tripType === "roundtrip" && (pinnedIda || pinnedVolta) && (
-              <TotalBar ida={pinnedIda} volta={pinnedVolta} />
+              <TotalBar ida={pinnedIda} volta={pinnedVolta} roundtripDirect={roundtripDirect} />
             )}
 
             {/* Origin tabs */}

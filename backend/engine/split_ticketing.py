@@ -100,7 +100,11 @@ class SplitTicketingEngine:
         # ── Phase 1: probe hub candidates AND direct baseline simultaneously ──
         self._emit(f"[fase 1] {probe_date.strftime('%d/%m')} — direto + {len(req.hub_candidates)} hubs candidatos…")
 
-        hub_combos = [(origin, hub) for origin in req.origins for hub in req.hub_candidates]
+        skip_hubs = set(req.destinations) | set(req.origins)
+        hub_combos = [
+            (origin, hub) for origin in req.origins for hub in req.hub_candidates
+            if hub not in skip_hubs
+        ]
         direct_combos_probe = [(origin, dest) for origin in req.origins for dest in req.destinations]
 
         hub_probe_coros = [

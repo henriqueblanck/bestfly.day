@@ -40,11 +40,26 @@ export interface MatrixEntry {
 
 export type Matrix = Record<string, Record<string, Record<string, MatrixEntry>>>;
 
+export interface RoundTripDirectOffer {
+  total: number;
+  outbound: number;
+  return: number;
+  outbound_airline: string;
+  return_airline: string;
+  outbound_duration_minutes: number;
+  return_duration_minutes: number;
+  outbound_connections: number;
+  return_connections: number;
+  outbound_date: string;
+  return_date: string;
+}
+
 export interface JobResult {
   job_id: string;
   status: "queued" | "running" | "complete" | "failed";
   matrix: Matrix | null;
   return_matrix: Matrix | null;
+  roundtrip_direct: Record<string, Record<string, RoundTripDirectOffer>> | null;
   logs: string[];
   error: string | null;
 }
