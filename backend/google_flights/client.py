@@ -92,14 +92,14 @@ class GoogleFlightsClient:
         except KeyError:
             raise UnknownAirportError(f"código não reconhecido: {destination}")
 
-        from google_flights.gf_scraper import search_round_trip as _pw_search
+        from google_flights.gf_direct import search_round_trip as _direct_search
 
-        results = await _pw_search(
+        results = await _direct_search(
             origin, destination, outbound_date, return_date,
             max_stops=max_connections, top_n=10,
         )
         if not results:
-            log.warning("gf_scraper round-trip returned 0 results %s↔%s %s/%s",
+            log.warning("gf_direct round-trip returned 0 results %s↔%s %s/%s",
                         origin, destination, outbound_date, return_date)
             return None
 
@@ -107,7 +107,7 @@ class GoogleFlightsClient:
         total = best.price
         half = (total / 2).quantize(Decimal("0.01"))
 
-        log.info("gf_scraper round-trip %s↔%s %s/%s: R$%s (%s)",
+        log.info("gf_direct round-trip %s↔%s %s/%s: R$%s (%s)",
                  origin, destination, outbound_date, return_date, total, best.airline)
 
         return RoundTripOffer(
