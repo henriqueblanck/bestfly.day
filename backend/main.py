@@ -209,32 +209,48 @@ async def _run_search(job_id: str, req: SearchInput):
             await asyncio.to_thread(db.save_job, job_id, jobs[job_id])
 
             # ── Round-trip direct baseline (background) ──
-            # HTTP direto; até 5 datas por par.
-            def _spread_dates(start: date, end: date, n: int = 5) -> list[date]:
-                """Return up to n evenly-spaced dates within [start, end] inclusive."""
-                span = (end - start).days
-                if span <= 0:
-                    return [start]
-                count = min(n, span + 1)
-                if count == 1:
-                    return [start]
-                return [
-                    start + timedelta(days=round(i * span / (count - 1)))
-                    for i in range(count)
-                ]
+            # Fase 1: GetCalendarGraph → preços por dia do mês (1 chamada/par).
+            # Fase 2: expansão two-step apenas para as N datas mais baratas.
+            from google_flights.gf_calendar import get_price_calendar
 
             rt_client = GoogleFlightsClient()
-            out_span = (req.date_to - req.date_from).days
             ret_span = (ret_end - req.return_date_from).days
-            spread_out = _spread_dates(req.date_from, req.date_to, n=5)
-            N_DATES = len(spread_out)
+            trip_length_days = max(1, (ret_end - req.date_to).days or ret_span // 2 or 7)
 
             def _paired_ret(od: date) -> date:
-                """Pick the proportionally-matching return date for a given outbound date."""
+                out_span = (req.date_to - req.date_from).days
                 if out_span == 0:
                     return req.return_date_from + timedelta(days=ret_span // 2)
                 ratio = (od - req.date_from).days / out_span
                 return req.return_date_from + timedelta(days=round(ratio * ret_span))
+
+            async def _best_dates_for_pair(origin: str, dest: str) -> list[date]:
+                """Use the calendar API to find the cheapest outbound dates in range."""
+                cal = await get_price_calendar(
+                    origin, dest,
+                    month_start=req.date_from.replace(day=1),
+                    trip_type="roundtrip",
+                    currency="BRL",
+                    trip_length_days=trip_length_days,
+                )
+                # Filter to requested range and sort by price
+                in_range = {
+                    d: p for d, p in cal.items()
+                    if req.date_from.isoformat() <= d <= req.date_to.isoformat()
+                }
+                if not in_range:
+                    # Fallback: 5 evenly-spaced dates
+                    span = (req.date_to - req.date_from).days
+                    count = min(5, span + 1)
+                    if count <= 1:
+                        return [req.date_from]
+                    return [
+                        req.date_from + timedelta(days=round(i * span / (count - 1)))
+                        for i in range(count)
+                    ]
+                sorted_dates = sorted(in_range, key=lambda d: in_range[d])
+                top5 = sorted_dates[:5]
+                return [date.fromisoformat(d) for d in top5]
 
             _rt_sem = asyncio.Semaphore(3)
 
@@ -245,7 +261,7 @@ async def _run_search(job_id: str, req: SearchInput):
                             origin, dest, od, rd, req.max_connections
                         )
                         if offer:
-                            on_log(f"  ✓ roundtrip {origin}↔{dest} R${int(offer.total_price)}")
+                            on_log(f"  ✓ roundtrip {origin}↔{dest} {od} R${int(offer.total_price)}")
                             return (origin, dest, od.isoformat(), {
                                 "total": float(offer.total_price),
                                 "outbound": float(offer.outbound_price),
@@ -265,15 +281,22 @@ async def _run_search(job_id: str, req: SearchInput):
                         on_log(f"  ✗ roundtrip {origin}↔{dest}: {exc}")
                     return None
 
-            combos = [
-                (origin, dest, od, _paired_ret(od))
-                for origin in req.origins
-                for dest in req.destinations
-                for od in spread_out
-            ]
-            on_log(f"[roundtrip] {len(combos)} combos ({N_DATES} datas) em background…")
+            pairs = [(o, d) for o in req.origins for d in req.destinations]
+            on_log(f"[roundtrip] calendário para {len(pairs)} par(es) + expansão top-5…")
 
             async def _run_rt_bg():
+                # Phase 1: one calendar call per pair to pick cheapest dates
+                date_tasks = await asyncio.gather(*[
+                    _best_dates_for_pair(o, d) for o, d in pairs
+                ])
+                combos = [
+                    (o, d, od, _paired_ret(od))
+                    for (o, d), best_dates in zip(pairs, date_tasks)
+                    for od in best_dates
+                ]
+                on_log(f"[roundtrip] {len(combos)} combos selecionados pelo calendário")
+
+                # Phase 2: full two-step expansion for selected dates
                 probe_results = await asyncio.gather(*[_probe_rt(*c) for c in combos])
                 rt_results: dict[str, dict[str, Any]] = {}
                 for r in probe_results:
