@@ -275,80 +275,87 @@
 
 /* ── Mobile responsive ──────────────────────────────────────── */
 
-@media (max-width: 768px) {
-  /* Stack the two-column layout vertically */
-  div[style*="gridTemplateColumns"] {
-    grid-template-columns: 1fr !important;
+@media (max-width: 640px) {
+  nav {
+    padding: 12px 16px !important;
   }
 
-  /* App layout: panels go vertical */
-  .bf-layout-panels {
-    flex-direction: column !important;
+  .bf-input,
+  input[type="date"],
+  input[type="number"],
+  select {
+    font-size: 16px !important;
   }
 
-  /* Left panel: no fixed border, full width */
-  .bf-left-panel {
-    border-right: none !important;
-    border-bottom: 1px solid var(--line) !important;
-    overflow-y: visible !important;
-  }
-
-  /* Matrix cells: 52px tall, smaller fonts */
-  .matrix-scroll table td {
-    height: 52px !important;
-    min-width: 76px !important;
-    padding: 4px 6px !important;
+  .chip {
     font-size: 11px !important;
+    padding: 3px 8px !important;
   }
 
-  /* Matrix destination column: narrower on mobile */
-  .matrix-scroll table td:first-child {
-    min-width: 0 !important;
-    padding-right: 8px !important;
-  }
-
-  /* Smaller price text in cells */
-  .matrix-scroll table td div:first-child {
-    font-size: 11px !important;
-  }
-
-  /* Matrix scroll: always horizontal scroll, first col sticky */
   .matrix-scroll {
     overflow-x: auto !important;
     -webkit-overflow-scrolling: touch;
   }
 
-  /* Header navigation padding */
-  nav {
-    padding: 12px 16px !important;
+  .matrix-scroll table td,
+  .matrix-scroll table th {
+    min-width: 76px !important;
+    font-size: 11px !important;
   }
+}
 
-  /* Matrix right panel: full width, reduced padding */
-  div[style*="padding: 28px"] {
+/* ── App layout ─────────────────────────────────────────────── */
+
+.bf-app-panels {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  flex: 1;
+}
+
+.bf-left-panel {
+  border-right: 1px solid var(--border);
+}
+
+@media (max-width: 640px) {
+  .bf-app-panels {
+    grid-template-columns: 1fr;
+  }
+  .bf-left-panel {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .bf-right-panel {
     padding: 16px !important;
   }
+}
 
-  /* Best deal callout: stack vertically */
-  .bf-best-deal {
-    flex-direction: column !important;
-    align-items: flex-start !important;
-    gap: 14px !important;
+/* ── SearchForm layout classes ──────────────────────────────── */
+
+.bf-form-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.bf-form-3col {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 640px) {
+  .bf-form-2col {
+    grid-template-columns: 1fr;
   }
-
-  /* Large price in callout: smaller on mobile */
-  .bf-best-deal-price {
-    font-size: 22px !important;
+  .bf-form-3col {
+    grid-template-columns: 1fr 1fr;
   }
-
-  /* Search form text */
-  .bf-input {
-    font-size: 16px !important; /* prevent iOS zoom */
+  .bf-date-strip {
+    gap: 4px !important;
   }
-
-  /* Share modal card: fit mobile screen */
-  .bf-share-card {
-    width: 88vw !important;
-    height: auto !important;
-    min-height: 480px !important;
+  .bf-date-strip button {
+    min-width: 44px !important;
+    font-size: 10px !important;
+    padding: 6px 2px !important;
   }
 }

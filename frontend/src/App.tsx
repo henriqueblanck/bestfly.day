@@ -149,11 +149,10 @@ export default function App() {
         </div>
       </nav>
 
-      <div style={{ flex: 1, display: "grid", gridTemplateColumns: matrix ? "380px 1fr" : "1fr", gap: 0, maxWidth: matrix ? "none" : 560, margin: matrix ? 0 : "40px auto", padding: matrix ? 0 : "0 24px", width: "100%" }}>
+      <div className={matrix ? "bf-app-panels" : ""} style={{ flex: 1, display: matrix ? undefined : "block", maxWidth: matrix ? "none" : 560, margin: matrix ? 0 : "40px auto", padding: matrix ? 0 : "0 24px", width: "100%" }}>
 
         {/* Left panel: form + terminal */}
-        <div style={{
-          borderRight: matrix ? "1px solid var(--border)" : "none",
+        <div className="bf-left-panel" style={{
           padding: 28,
           display: "flex",
           flexDirection: "column",
@@ -184,7 +183,7 @@ export default function App() {
 
         {/* Right panel: matrix */}
         {matrix && (
-          <div style={{ padding: 28, overflowX: "auto" }}>
+          <div className="bf-right-panel" style={{ padding: 28, overflowX: "auto" }}>
             {/* Origin tabs */}
             {origins.length > 1 && (
               <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>

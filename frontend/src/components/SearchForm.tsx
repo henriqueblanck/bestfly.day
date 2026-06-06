@@ -59,7 +59,7 @@ export function SearchForm({ onSubmit, loading }: Props) {
     <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
       {/* Origins + Destinations */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <div className="bf-form-2col">
         <AirportTagInput
           label="Origens"
           hint="máx 2 aeroportos"
@@ -107,7 +107,7 @@ export function SearchForm({ onSubmit, loading }: Props) {
       </div>
 
       {/* Advanced row */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+      <div className="bf-form-3col">
         <div>
           <label style={labelStyle}>Máx. escalas</label>
           <select className="bf-input" value={maxConn} onChange={(e) => setMaxConn(+e.target.value)} style={{ cursor: "pointer" }}>
@@ -126,11 +126,13 @@ export function SearchForm({ onSubmit, loading }: Props) {
         </div>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, fontFamily: "var(--mono)", color: overLimit ? "var(--crimson)" : "var(--ink-3)", marginTop: 4 }}>
-        <span>
-          ({originCodes.length}ori × {hubs.length}hub + {hubs.length}hub × {destCodes.length}dest) × {days}d = <strong style={{ color: overLimit ? "var(--crimson)" : "var(--ink-2)" }}>{totalSearches} buscas</strong>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, fontFamily: "var(--mono)", color: overLimit ? "var(--crimson)" : "var(--ink-3)", marginTop: 4, gap: 8 }}>
+        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {originCodes.length} ori · {hubs.length} hub · {destCodes.length} dest · {days} dias
         </span>
-        <span>limite: {MAX_COMBOS}</span>
+        <span style={{ flexShrink: 0 }}>
+          <strong style={{ color: overLimit ? "var(--crimson)" : "var(--green)" }}>{totalSearches}</strong>/{MAX_COMBOS} buscas
+        </span>
       </div>
 
       <button
@@ -157,7 +159,7 @@ function DateStrip({ from, to, onChange }: { from: string; to: string; onChange:
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
-      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4 }}>
+      <div className="bf-date-strip" style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4 }}>
         {days.map((d) => {
           const isFrom = d === from;
           const isTo = d === to;

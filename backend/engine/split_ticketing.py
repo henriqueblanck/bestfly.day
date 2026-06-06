@@ -126,12 +126,19 @@ class SplitTicketingEngine:
         max_connections: int,
         max_duration_hours: int,
     ) -> list[OfferSlice]:
-        offers = await self._client.search_one_way(origin, destination, d, max_connections)
-        return [
+        try:
+            offers = await self._client.search_one_way(origin, destination, d, max_connections)
+        except Exception as exc:
+            self._emit(f"  ✗ erro: {exc}")
+            return []
+        filtered = [
             o for o in offers
             if o.duration_minutes <= max_duration_hours * 60
             and o.connections <= max_connections
         ]
+        if offers and not filtered:
+            self._emit(f"  – {len(offers)} resultados filtrados (duração/escalas)")
+        return filtered
 
 
 def _build_matrix(

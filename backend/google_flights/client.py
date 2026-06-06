@@ -42,9 +42,13 @@ class GoogleFlightsClient:
     ) -> list[OfferSlice]:
         try:
             origin_airport = Airport[origin]
+        except KeyError:
+            log.warning("Airport not in fli enum: %s", origin)
+            return []
+        try:
             dest_airport = Airport[destination]
-        except KeyError as e:
-            log.warning("Unknown airport code: %s", e)
+        except KeyError:
+            log.warning("Airport not in fli enum: %s", destination)
             return []
 
         max_stops = _STOPS_MAP.get(max_connections, MaxStops.ANY)
@@ -63,13 +67,26 @@ class GoogleFlightsClient:
                     )
                 ],
             )
-            results = searcher.search(filters, top_n=10, currency="BRL")
-            if not results:
+
+            try:
+                results = searcher.search(filters, top_n=10, currency="BRL")
+            except Exception as inner_exc:
+                log.error(
+                    "fli.search raised %s→%s %s: %s",
+                    origin, destination, departure_date, inner_exc,
+                )
+                raise
+
+            if results is None:
+                log.warning("fli returned None for %s→%s %s", origin, destination, departure_date)
                 return []
+
+            log.info("fli %s→%s %s: %d result(s)", origin, destination, departure_date, len(results))
 
             slices = []
             for i, r in enumerate(results):
                 if r.price is None:
+                    log.debug("skipping result %d: price=None", i)
                     continue
                 airline = ""
                 if r.legs:
@@ -92,5 +109,8 @@ class GoogleFlightsClient:
         try:
             return await asyncio.to_thread(_search)
         except Exception as exc:
-            log.error("Google Flights error %s→%s %s: %s", origin, destination, departure_date, exc)
+            log.error(
+                "Google Flights error %s→%s %s: %s",
+                origin, destination, departure_date, exc,
+            )
             return []
