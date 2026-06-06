@@ -3,3 +3,4 @@ uvicorn[standard]>=0.29
 pydantic>=2.7
 pydantic-settings>=2.2
 git+https://github.com/punitarani/fli.git@v0.9.0
+playwright>=1.44

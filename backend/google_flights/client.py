@@ -82,89 +82,46 @@ class GoogleFlightsClient:
         return_date: date,
         max_connections: int = 1,
     ) -> RoundTripOffer | None:
+        # Validate airports exist in fli enum (reuse for code validation only)
         try:
-            origin_airport = Airport[origin]
+            Airport[origin]
         except KeyError:
-            raise UnknownAirportError(f"código não reconhecido pelo fli: {origin}")
+            raise UnknownAirportError(f"código não reconhecido: {origin}")
         try:
-            dest_airport = Airport[destination]
+            Airport[destination]
         except KeyError:
-            raise UnknownAirportError(f"código não reconhecido pelo fli: {destination}")
+            raise UnknownAirportError(f"código não reconhecido: {destination}")
 
-        max_stops = _STOPS_MAP.get(max_connections, MaxStops.ANY)
+        from google_flights.gf_scraper import search_round_trip as _pw_search
 
-        def _search() -> RoundTripOffer | None:
-            searcher = SearchFlights()
-            filters = FlightSearchFilters(
-                trip_type=TripType.ROUND_TRIP,
-                passenger_info=PassengerInfo(adults=1),
-                flight_segments=[
-                    FlightSegment(
-                        departure_airport=[[origin_airport, 0]],
-                        arrival_airport=[[dest_airport, 0]],
-                        travel_date=outbound_date.isoformat(),
-                        max_stops=max_stops,
-                    ),
-                    FlightSegment(
-                        departure_airport=[[dest_airport, 0]],
-                        arrival_airport=[[origin_airport, 0]],
-                        travel_date=return_date.isoformat(),
-                        max_stops=max_stops,
-                    ),
-                ],
-            )
-            results = searcher.search(filters, top_n=10, currency="BRL")
-            if not results:
-                return None
+        results = await _pw_search(
+            origin, destination, outbound_date, return_date,
+            max_stops=max_connections, top_n=10,
+        )
+        if not results:
+            log.warning("gf_scraper round-trip returned 0 results %s↔%s %s/%s",
+                        origin, destination, outbound_date, return_date)
+            return None
 
-            best = min(results, key=lambda r: r.price or float("inf"))
-            if best.price is None:
-                return None
+        best = results[0]  # already sorted by price
+        total = best.price
+        half = (total / 2).quantize(Decimal("0.01"))
 
-            total = Decimal(str(best.price))
-            # Split evenly if no per-leg breakdown
-            legs = best.legs or []
-            if len(legs) >= 2:
-                out_airline = legs[0].airline.value if legs[0].airline else ""
-                ret_airline = legs[1].airline.value if legs[1].airline else ""
-                out_dur = getattr(legs[0], "duration", 0) or 0
-                ret_dur = getattr(legs[1], "duration", 0) or 0
-                out_conn = getattr(legs[0], "stops", 0) or 0
-                ret_conn = getattr(legs[1], "stops", 0) or 0
-            else:
-                out_airline = ret_airline = (legs[0].airline.value if legs and legs[0].airline else "")
-                out_dur = ret_dur = (getattr(legs[0], "duration", 0) or 0) if legs else 0
-                out_conn = ret_conn = 0
+        log.info("gf_scraper round-trip %s↔%s %s/%s: R$%s (%s)",
+                 origin, destination, outbound_date, return_date, total, best.airline)
 
-            half = (total / 2).quantize(Decimal("0.01"))
-            return RoundTripOffer(
-                outbound_price=half,
-                return_price=total - half,
-                total_price=total,
-                currency=best.currency or "BRL",
-                outbound_airline=out_airline,
-                return_airline=ret_airline,
-                outbound_duration_minutes=out_dur,
-                return_duration_minutes=ret_dur,
-                outbound_connections=out_conn,
-                return_connections=ret_conn,
-            )
-
-        for attempt in range(_RETRY_ATTEMPTS):
-            try:
-                result = await asyncio.to_thread(_search)
-                if result is not None:
-                    log.info("round-trip %s↔%s %s/%s: R$%s", origin, destination, outbound_date, return_date, result.total_price)
-                    return result
-                if attempt < _RETRY_ATTEMPTS - 1:
-                    await asyncio.sleep(_RETRY_BACKOFF[attempt])
-            except UnknownAirportError:
-                raise
-            except Exception as exc:
-                log.error("round-trip error %s↔%s (attempt %d): %s", origin, destination, attempt + 1, exc)
-                if attempt < _RETRY_ATTEMPTS - 1:
-                    await asyncio.sleep(_RETRY_BACKOFF[attempt])
-        return None
+        return RoundTripOffer(
+            outbound_price=half,
+            return_price=total - half,
+            total_price=total,
+            currency=best.currency,
+            outbound_airline=best.airline,
+            return_airline=best.airline,
+            outbound_duration_minutes=best.duration_minutes,
+            return_duration_minutes=best.duration_minutes,
+            outbound_connections=best.stops,
+            return_connections=best.stops,
+        )
 
     async def search_one_way(
         self,
