@@ -200,29 +200,19 @@ async def _run_search(job_id: str, req: SearchInput):
             serialized_ret = await _enrich_with_stats(serialized_ret)
             jobs[job_id]["return_matrix"] = serialized_ret
 
-            # ── Round-trip direct baseline ──
-            # Grid search: all outbound dates × representative return dates,
-            # parallelised with a semaphore so we don't hammer the API.
+            # Matrix ready — mark complete so the frontend can render immediately.
+            # Round-trip Playwright searches run as a background task (heavy).
+            jobs[job_id]["status"] = "complete"
+
+            # ── Round-trip direct baseline (background) ──
+            # One representative combo per origin↔dest pair (mid dates).
+            # Playwright is slow; keeping it to 1 combo/pair avoids blocking.
             from datetime import timedelta as _td
             rt_client = GoogleFlightsClient()
+            out_mid = req.date_from + (req.date_to - req.date_from) // 2
+            ret_mid = req.return_date_from + (ret_end - req.return_date_from) // 2
 
-            out_days_n = (req.date_to - req.date_from).days + 1
-            ret_days_n = (ret_end - req.return_date_from).days + 1
-            all_out_dates = [req.date_from + _td(days=i) for i in range(out_days_n)]
-            # Up to 3 representative return dates: start, mid, end
-            ret_indices = sorted({0, ret_days_n // 2, ret_days_n - 1})
-            all_ret_dates = [req.return_date_from + _td(days=i) for i in ret_indices]
-
-            combos = [
-                (origin, dest, od, rd)
-                for origin in req.origins
-                for dest in req.destinations
-                for od in all_out_dates
-                for rd in all_ret_dates
-            ]
-            on_log(f"[roundtrip] {len(combos)} combinações ida×volta — paralelo…")
-
-            _rt_sem = asyncio.Semaphore(5)
+            _rt_sem = asyncio.Semaphore(3)
 
             async def _probe_rt(origin: str, dest: str, od, rd) -> tuple | None:
                 async with _rt_sem:
@@ -231,7 +221,7 @@ async def _run_search(job_id: str, req: SearchInput):
                             origin, dest, od, rd, req.max_connections
                         )
                         if offer:
-                            on_log(f"  ✓ {origin}↔{dest} {od} R${int(offer.total_price)}")
+                            on_log(f"  ✓ roundtrip {origin}↔{dest} R${int(offer.total_price)}")
                             return (origin, dest, od.isoformat(), {
                                 "total": float(offer.total_price),
                                 "outbound": float(offer.outbound_price),
@@ -248,25 +238,28 @@ async def _run_search(job_id: str, req: SearchInput):
                     except UnknownAirportError as e:
                         on_log(f"  ✗ {e}")
                     except Exception as exc:
-                        on_log(f"  ✗ roundtrip {origin}↔{dest} {od}: {exc}")
+                        on_log(f"  ✗ roundtrip {origin}↔{dest}: {exc}")
                     return None
 
-            probe_results = await asyncio.gather(*[_probe_rt(*c) for c in combos])
+            combos = [
+                (origin, dest, out_mid, ret_mid)
+                for origin in req.origins
+                for dest in req.destinations
+            ]
+            on_log(f"[roundtrip] {len(combos)} buscas Playwright em background…")
 
-            rt_results: dict[str, dict[str, Any]] = {}
-            for r in probe_results:
-                if r is None:
-                    continue
-                origin, dest, out_iso, offer_data = r
-                # Keep the cheapest round-trip total for each outbound date
-                existing = rt_results.setdefault(origin, {}).setdefault(dest, {}).get(out_iso)
-                if existing is None or offer_data["total"] < existing["total"]:
-                    rt_results[origin][dest][out_iso] = offer_data
+            async def _run_rt_bg():
+                probe_results = await asyncio.gather(*[_probe_rt(*c) for c in combos])
+                rt_results: dict[str, dict[str, Any]] = {}
+                for r in probe_results:
+                    if r is None:
+                        continue
+                    o, d, out_iso, offer_data = r
+                    rt_results.setdefault(o, {}).setdefault(d, {})[out_iso] = offer_data
+                if rt_results:
+                    jobs[job_id]["roundtrip_direct"] = rt_results
 
-            if rt_results:
-                jobs[job_id]["roundtrip_direct"] = rt_results
-
-        jobs[job_id]["status"] = "complete"
+            asyncio.create_task(_run_rt_bg())
     except Exception as exc:
         log.exception("Search job %s failed", job_id)
         jobs[job_id]["status"] = "failed"

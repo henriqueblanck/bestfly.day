@@ -117,13 +117,18 @@ function TotalBar({
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", borderTop: "1px solid var(--line)", paddingTop: 10, alignItems: "flex-end" }}>
 
           {/* ① Split */}
-          <div style={{ flex: 1, minWidth: 100 }}>
+          <div style={{ flex: 1, minWidth: 110 }}>
             <div style={{ fontSize: 9, color: "var(--ink-3)", marginBottom: 2, letterSpacing: 0.8 }}>
               {winner(splitTotal) ? "✦ MELHOR · " : ""}SPLIT-TICKET
             </div>
             <div style={{ fontSize: 18, fontWeight: 700, color: col(splitTotal), letterSpacing: "-0.03em" }}>
               {fmtPrice(splitTotal)}
             </div>
+            {winner(splitTotal) && (
+              <div style={{ fontSize: 9, color: "var(--ink-3)", marginTop: 3 }}>
+                reserve cada perna na matrix ↑
+              </div>
+            )}
           </div>
 
           <div style={{ color: "var(--line-2)", alignSelf: "center", fontSize: 11 }}>vs</div>
@@ -131,26 +136,32 @@ function TotalBar({
           {/* ② Single-ticket pair (one-way × 2) */}
           {pairTotal != null && (
             <>
-              <div style={{ flex: 1, minWidth: 100 }}>
+              <div style={{ flex: 1, minWidth: 110 }}>
                 <div style={{ fontSize: 9, color: "var(--ink-3)", marginBottom: 2, letterSpacing: 0.8 }}>
                   {winner(pairTotal) ? "✦ MELHOR · " : ""}2× IDA SIMPLES
                 </div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: col(pairTotal), letterSpacing: "-0.03em" }}>
                   {fmtPrice(pairTotal)}
                 </div>
-                {winner(pairTotal) && splitTotal > pairTotal && (
-                  <div style={{ fontSize: 9, color: "var(--green)", marginTop: 2 }}>
-                    economiza {fmtPrice(splitTotal - pairTotal)} vs split
-                  </div>
+                {winner(pairTotal) && (
+                  <button
+                    onClick={() => {
+                      window.open(`https://www.google.com/travel/flights?q=${ida!.origin}+to+${ida!.dest}+on+${ida!.date}&curr=BRL`, "_blank");
+                      window.open(`https://www.google.com/travel/flights?q=${volta!.origin}+to+${volta!.dest}+on+${volta!.date}&curr=BRL`, "_blank");
+                    }}
+                    style={{ marginTop: 5, fontSize: 9, background: "var(--green)", color: "var(--on-accent)", border: "none", borderRadius: 4, padding: "3px 8px", cursor: "pointer", fontFamily: "var(--mono)", fontWeight: 700 }}
+                  >
+                    reservar ida + volta →
+                  </button>
                 )}
               </div>
               <div style={{ color: "var(--line-2)", alignSelf: "center", fontSize: 11 }}>vs</div>
             </>
           )}
 
-          {/* ③ fli round-trip */}
+          {/* ③ Round-trip consolidated */}
           {rtTotal != null ? (
-            <div style={{ flex: 1, minWidth: 100 }}>
+            <div style={{ flex: 1, minWidth: 110 }}>
               <div style={{ fontSize: 9, color: "var(--ink-3)", marginBottom: 2, letterSpacing: 0.8 }}>
                 {winner(rtTotal) ? "✦ MELHOR · " : ""}IDA+VOLTA ÚNICO{rt?.outbound_airline ? ` · ${rt.outbound_airline}` : ""}
               </div>
@@ -158,13 +169,22 @@ function TotalBar({
                 {fmtPrice(rtTotal)}
               </div>
               {winner(rtTotal) && (
-                <div style={{ fontSize: 9, color: "var(--green)", marginTop: 2 }}>
-                  economiza {fmtPrice(splitTotal - rtTotal)} vs split
-                </div>
+                <button
+                  onClick={() => {
+                    const retDate = rt?.return_date || volta!.date;
+                    window.open(
+                      `https://www.google.com/travel/flights?q=flights+from+${ida!.origin}+to+${ida!.dest}+on+${ida!.date}+returning+${retDate}&curr=BRL`,
+                      "_blank"
+                    );
+                  }}
+                  style={{ marginTop: 5, fontSize: 9, background: "var(--green)", color: "var(--on-accent)", border: "none", borderRadius: 4, padding: "3px 8px", cursor: "pointer", fontFamily: "var(--mono)", fontWeight: 700 }}
+                >
+                  reservar ida+volta →
+                </button>
               )}
             </div>
           ) : (
-            <div style={{ flex: 1, minWidth: 100 }}>
+            <div style={{ flex: 1, minWidth: 110 }}>
               <div style={{ fontSize: 9, color: "var(--ink-3)", marginBottom: 2, letterSpacing: 0.8 }}>IDA+VOLTA ÚNICO</div>
               <div style={{ fontSize: 11, color: "var(--ink-3)", fontStyle: "italic" }}>buscando…</div>
             </div>

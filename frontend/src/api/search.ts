@@ -109,6 +109,8 @@ export async function waitForMatrix(
   let lastMatrix: Matrix = {};
   let lastReturnMatrix: Matrix | null = null;
   let seenLogs = 0;
+  let completeAt: number | null = null;
+
   while (Date.now() < deadline) {
     const result = await pollJob(jobId);
     const newLogs = result.logs.slice(seenLogs);
@@ -116,8 +118,15 @@ export async function waitForMatrix(
     onProgress(result.status, newLogs);
     if (result.matrix) lastMatrix = result.matrix;
     if (result.return_matrix) lastReturnMatrix = result.return_matrix;
-    if (result.status === "complete" && result.matrix) return result;
     if (result.status === "failed") throw new Error(result.error ?? "Search failed");
+
+    if (result.status === "complete" && result.matrix) {
+      // Keep polling for up to 90s after complete to capture background round-trip results
+      if (completeAt === null) completeAt = Date.now();
+      if (result.roundtrip_direct || Date.now() - completeAt > 90_000) {
+        return result;
+      }
+    }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
   throw new TimeoutWithPartialResult(lastMatrix, lastReturnMatrix);
