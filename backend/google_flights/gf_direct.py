@@ -217,12 +217,12 @@ def _build_url(currency: str) -> str:
 # Response parsing
 # ---------------------------------------------------------------------------
 
-def _parse_wrb_response(body: str) -> list | None:
+def _parse_wrb_response(body: str | bytes) -> list | None:
     """Parse the wrb.fr JSONP response and return the first inner payload."""
-    raw = body.encode("utf-8")
+    raw = body if isinstance(body, bytes) else body.encode("utf-8")
     # Strip )]}' prefix
     raw = raw.lstrip()
-    prefix = b")]}'".encode()
+    prefix = b")]}\'"
     if raw.startswith(prefix):
         raw = raw[len(prefix):]
     raw = raw.lstrip()
@@ -442,7 +442,10 @@ def _post_sync(url: str, body: str) -> str | None:
             timeout=60,
         )
         resp.raise_for_status()
-        return resp.text
+        text = resp.text
+        if isinstance(text, bytes):
+            text = text.decode("utf-8", errors="replace")
+        return text
     except Exception as e:
         log.error("gf_direct HTTP error: %s", e)
         return None
