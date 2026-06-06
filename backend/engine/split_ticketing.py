@@ -1,9 +1,12 @@
 """
 Core split-ticketing engine.
 
-Hub-by-hub execution: for each hub, run all long-haul legs then all intra-EU
-legs, then emit a partial matrix. This way partial results are available as
-soon as the first hub is fully scanned.
+Hub-by-hub execution with controlled parallelism:
+- Within each hub, long-haul and intra-EU searches fire concurrently
+- A shared semaphore (CONCURRENT_SEARCHES) caps simultaneous fli calls
+- A per-request delay prevents burst spikes even within the semaphore
+- Cache hits (from SQLite) bypass the semaphore entirely (instant)
+- Partial matrix emitted after each hub completes both legs
 """
 import asyncio
 import logging
@@ -20,6 +23,9 @@ log = logging.getLogger(__name__)
 MarkupFn = Callable[[Decimal], Decimal]
 LogFn = Callable[[str], None]
 PartialFn = Callable[["PriceMatrix"], None]
+
+CONCURRENT_SEARCHES = 3      # max simultaneous fli calls
+INTER_REQUEST_DELAY = 1.0    # seconds between each semaphore acquisition
 
 
 @dataclass
@@ -48,11 +54,8 @@ class SearchRequest:
     date_from: date
     date_to: date
     max_connections: int = 1
-    max_duration_hours: int = 20
+    max_duration_hours: int = 36
     markup_fn: MarkupFn = field(default=lambda p: p)
-
-
-SEARCH_DELAY_SECONDS = 2.0
 
 
 class SplitTicketingEngine:
@@ -60,6 +63,8 @@ class SplitTicketingEngine:
         self._client = GoogleFlightsClient()
         self._log_fn = log_fn or (lambda msg: log.info(msg))
         self._partial_fn = partial_fn
+        self._sem = asyncio.Semaphore(CONCURRENT_SEARCHES)
+        self._request_lock = asyncio.Lock()  # serialise semaphore acquisitions for the delay
 
     def _emit(self, msg: str) -> None:
         self._log_fn(msg)
@@ -69,39 +74,50 @@ class SplitTicketingEngine:
         all_lh_slices: list[OfferSlice] = []
         all_eu_slices: list[OfferSlice] = []
 
-        total_searches = (len(req.origins) * len(req.hubs) + len(req.hubs) * len(req.destinations)) * len(date_range)
-        self._emit(f"[start] {total_searches} buscas · {len(req.hubs)} hub(s) · {len(date_range)} dia(s)")
+        total_searches = (
+            len(req.origins) * len(req.hubs) + len(req.hubs) * len(req.destinations)
+        ) * len(date_range)
+        self._emit(
+            f"[start] {total_searches} buscas · {len(req.hubs)} hub(s) · "
+            f"{len(date_range)} dia(s) · {CONCURRENT_SEARCHES} em paralelo"
+        )
 
         for hub in req.hubs:
-            self._emit(f"[hub {hub}] long-haul: {len(req.origins) * len(date_range)} buscas")
+            # ── Long-haul searches for this hub (all in parallel, capped by semaphore) ──
+            lh_combos = [(origin, hub, d) for origin in req.origins for d in date_range]
+            self._emit(f"[hub {hub}] long-haul: {len(lh_combos)} buscas")
+            lh_results = await asyncio.gather(
+                *[
+                    self._throttled_fetch(origin, hub, d, req.max_connections, req.max_duration_hours)
+                    for origin, hub, d in lh_combos
+                ]
+            )
+            for (origin, _, d), slices in zip(lh_combos, lh_results):
+                all_lh_slices.extend(slices)
+                if slices:
+                    best = min(slices, key=lambda s: s.price)
+                    self._emit(f"  ✓ {origin}→{hub} {d.strftime('%d/%m')} · {best.airline or '—'} · {_fmt_duration(best.duration_minutes)} · R${int(best.price)}")
+                else:
+                    self._emit(f"  – {origin}→{hub} {d.strftime('%d/%m')} sem resultado")
 
-            for origin in req.origins:
-                for d in date_range:
-                    self._emit(f"→ {origin} → {hub} · {d.strftime('%d/%m')}")
-                    slices = await self._fetch(origin, hub, d, req.max_connections, req.max_duration_hours)
-                    all_lh_slices.extend(slices)
-                    if slices:
-                        best = min(slices, key=lambda s: s.price)
-                        self._emit(f"  ✓ {best.airline or '—'} · {_fmt_duration(best.duration_minutes)} · R${int(best.price)}")
-                    else:
-                        self._emit(f"  – sem resultado")
-                    await asyncio.sleep(SEARCH_DELAY_SECONDS)
+            # ── Intra-EU searches for this hub ──
+            eu_combos = [(hub, dest, d) for dest in req.destinations for d in date_range]
+            self._emit(f"[hub {hub}] intra-EU: {len(eu_combos)} buscas")
+            eu_results = await asyncio.gather(
+                *[
+                    self._throttled_fetch(hub, dest, d, req.max_connections, req.max_duration_hours)
+                    for hub, dest, d in eu_combos
+                ]
+            )
+            for (_, dest, d), slices in zip(eu_combos, eu_results):
+                all_eu_slices.extend(slices)
+                if slices:
+                    best = min(slices, key=lambda s: s.price)
+                    self._emit(f"  ✓ {hub}→{dest} {d.strftime('%d/%m')} · {best.airline or '—'} · {_fmt_duration(best.duration_minutes)} · R${int(best.price)}")
+                else:
+                    self._emit(f"  – {hub}→{dest} {d.strftime('%d/%m')} sem resultado")
 
-            self._emit(f"[hub {hub}] intra-EU: {len(req.destinations) * len(date_range)} buscas")
-
-            for dest in req.destinations:
-                for d in date_range:
-                    self._emit(f"→ {hub} → {dest} · {d.strftime('%d/%m')}")
-                    slices = await self._fetch(hub, dest, d, req.max_connections, req.max_duration_hours)
-                    all_eu_slices.extend(slices)
-                    if slices:
-                        best = min(slices, key=lambda s: s.price)
-                        self._emit(f"  ✓ {best.airline or '—'} · {_fmt_duration(best.duration_minutes)} · R${int(best.price)}")
-                    else:
-                        self._emit(f"  – sem resultado")
-                    await asyncio.sleep(SEARCH_DELAY_SECONDS)
-
-            # Emit partial matrix after each hub completes both legs
+            # Emit partial matrix after each hub
             if self._partial_fn:
                 partial = _build_matrix(
                     req.origins, req.destinations, req.hubs, date_range,
@@ -117,6 +133,24 @@ class SplitTicketingEngine:
             all_lh_slices, all_eu_slices,
             req.max_duration_hours, req.markup_fn,
         )
+
+    async def _throttled_fetch(
+        self,
+        origin: str,
+        destination: str,
+        d: date,
+        max_connections: int,
+        max_duration_hours: int,
+    ) -> list[OfferSlice]:
+        # Serialise semaphore acquisition + delay to prevent bursts
+        async with self._request_lock:
+            await self._sem.acquire()
+            await asyncio.sleep(INTER_REQUEST_DELAY)
+
+        try:
+            return await self._fetch(origin, destination, d, max_connections, max_duration_hours)
+        finally:
+            self._sem.release()
 
     async def _fetch(
         self,
