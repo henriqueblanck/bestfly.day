@@ -98,6 +98,9 @@ export const AIRPORTS: Airport[] = [
   { iata: "IST", name: "Istanbul", city: "Istambul", country: "TR" },
   { iata: "SAW", name: "Sabiha Gökçen", city: "Istambul", country: "TR" },
   { iata: "AYT", name: "Antalya", city: "Antalya", country: "TR" },
+  { iata: "DOH", name: "Hamad Intl", city: "Doha", country: "QA" },
+  { iata: "DXB", name: "Dubai Intl", city: "Dubai", country: "AE" },
+  { iata: "AUH", name: "Zayed Intl", city: "Abu Dhabi", country: "AE" },
 ];
 
 export function searchAirports(query: string, limit = 8): Airport[] {

@@ -7,7 +7,7 @@ interface Props {
   loading: boolean;
 }
 
-const HUB_OPTIONS = ["MAD", "LIS", "IST", "CDG", "AMS", "FRA", "FCO", "LHR", "MUC", "MXP"];
+const HUB_OPTIONS = ["MAD", "LIS", "IST", "CDG", "AMS", "FRA", "ZRH", "FCO", "LHR", "MUC", "MXP", "DOH", "DXB"];
 const DATE_RANGE_DAYS = 10;
 
 function todayPlus(n: number): string {
