@@ -38,6 +38,15 @@ function findBestCell(matrix: Matrix, origin: string): PinnedLeg | null {
   return best;
 }
 
+function fmtDur(mins: number): string {
+  if (!mins) return "—";
+  return `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, "0")}`;
+}
+
+function fmtDate(iso: string): string {
+  return new Date(iso + "T12:00").toLocaleDateString("pt-BR", { day: "numeric", month: "short" });
+}
+
 function TotalBar({
   ida, volta, roundtripDirect, splitRt,
 }: {
@@ -46,6 +55,8 @@ function TotalBar({
   roundtripDirect: Record<string, Record<string, Record<string, RoundTripDirectOffer>>> | null;
   splitRt: Record<string, Record<string, SplitRTOffer>> | null;
 }) {
+  const [showRtDetails, setShowRtDetails] = useState(false);
+  const [showSrtDetails, setShowSrtDetails] = useState(false);
   const bothSelected = !!(ida && volta);
 
   // ① Split-ticket total (two separate one-way bookings)
@@ -170,7 +181,7 @@ function TotalBar({
 
           {/* ③ Round-trip consolidated */}
           {rtTotal != null ? (
-            <div style={{ flex: 1, minWidth: 110 }}>
+            <div style={{ flex: 1, minWidth: 130 }}>
               <div style={{ fontSize: 9, color: "var(--ink-3)", marginBottom: 2, letterSpacing: 0.8 }}>
                 {winner(rtTotal) ? "✦ MELHOR · " : ""}IDA+VOLTA ÚNICO{rt?.outbound_airline ? ` · ${rt.outbound_airline}` : ""}
               </div>
@@ -186,19 +197,37 @@ function TotalBar({
                   {" · "}avg {fmtPrice(rt.hist_avg)}
                 </div>
               )}
-              {winner(rtTotal) && (
+              <div style={{ display: "flex", gap: 5, marginTop: 5, flexWrap: "wrap" }}>
                 <button
-                  onClick={() => {
-                    const retDate = rt?.return_date || volta!.date;
-                    window.open(
-                      makeGoogleFlightsUrl(ida!.origin, ida!.dest, ida!.date, retDate),
-                      "_blank"
-                    );
-                  }}
-                  style={{ marginTop: 5, fontSize: 9, background: "var(--green)", color: "var(--on-accent)", border: "none", borderRadius: 4, padding: "3px 8px", cursor: "pointer", fontFamily: "var(--mono)", fontWeight: 700 }}
+                  onClick={() => setShowRtDetails(v => !v)}
+                  style={{ fontSize: 9, background: "transparent", color: "var(--ink-3)", border: "1px solid var(--line-2)", borderRadius: 4, padding: "3px 8px", cursor: "pointer", fontFamily: "var(--mono)" }}
                 >
-                  reservar ida+volta →
+                  {showRtDetails ? "fechar ▲" : "ver detalhes ▾"}
                 </button>
+                <button
+                  onClick={() => window.open(makeGoogleFlightsUrl(ida!.origin, ida!.dest, rt!.outbound_date, rt!.return_date), "_blank")}
+                  style={{ fontSize: 9, background: "var(--green)", color: "var(--on-accent)", border: "none", borderRadius: 4, padding: "3px 8px", cursor: "pointer", fontFamily: "var(--mono)", fontWeight: 700 }}
+                >
+                  reservar →
+                </button>
+              </div>
+              {showRtDetails && rt && (
+                <div style={{ marginTop: 8, padding: "8px 10px", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 4, fontSize: 10, color: "var(--ink-2)", display: "flex", flexDirection: "column", gap: 5 }}>
+                  <div>
+                    <span style={{ color: "var(--ink-3)", marginRight: 6, letterSpacing: 0.5 }}>IDA  </span>
+                    {fmtDate(rt.outbound_date)}
+                    {rt.outbound_airline ? ` · ${rt.outbound_airline}` : ""}
+                    {rt.outbound_duration_minutes ? ` · ${fmtDur(rt.outbound_duration_minutes)}` : ""}
+                    {" · "}{rt.outbound_connections === 0 ? "direto" : `${rt.outbound_connections} parada${rt.outbound_connections > 1 ? "s" : ""}`}
+                  </div>
+                  <div>
+                    <span style={{ color: "var(--ink-3)", marginRight: 6, letterSpacing: 0.5 }}>VOLTA</span>
+                    {fmtDate(rt.return_date)}
+                    {rt.return_airline ? ` · ${rt.return_airline}` : ""}
+                    {rt.return_duration_minutes ? ` · ${fmtDur(rt.return_duration_minutes)}` : ""}
+                    {" · "}{rt.return_connections === 0 ? "direto" : `${rt.return_connections} parada${rt.return_connections > 1 ? "s" : ""}`}
+                  </div>
+                </div>
               )}
             </div>
           ) : roundtripDirect === null ? (
@@ -224,9 +253,6 @@ function TotalBar({
               <div style={{ fontSize: 18, fontWeight: 700, color: col(srtTotal), letterSpacing: "-0.03em" }}>
                 {fmtPrice(srtTotal)}
               </div>
-              <div style={{ fontSize: 9, color: "var(--ink-3)", marginTop: 2 }}>
-                {srt?.lh_airline && srt?.eu_airline ? `${srt.lh_airline} + ${srt.eu_airline}` : ""}
-              </div>
               {srt?.hist_obs != null && srt.hist_obs >= 1 && srt.hist_avg && (
                 <div style={{ fontSize: 9, marginTop: 2, color: srt.deal_pct != null && srt.deal_pct >= 5 ? "var(--green)" : srt.deal_pct != null && srt.deal_pct <= -5 ? "var(--crimson)" : "var(--ink-3)" }}>
                   {srt.deal_pct != null && srt.deal_pct >= 5 ? `↓ ${Math.round(srt.deal_pct)}% abaixo da média` :
@@ -235,16 +261,40 @@ function TotalBar({
                   {" · "}avg {fmtPrice(srt.hist_avg)}
                 </div>
               )}
-              {winner(srtTotal) && (
+              <div style={{ display: "flex", gap: 5, marginTop: 5, flexWrap: "wrap" }}>
+                <button
+                  onClick={() => setShowSrtDetails(v => !v)}
+                  style={{ fontSize: 9, background: "transparent", color: "var(--ink-3)", border: "1px solid var(--line-2)", borderRadius: 4, padding: "3px 8px", cursor: "pointer", fontFamily: "var(--mono)" }}
+                >
+                  {showSrtDetails ? "fechar ▲" : "ver detalhes ▾"}
+                </button>
                 <button
                   onClick={() => {
                     window.open(makeGoogleFlightsUrl(ida!.origin, srt!.hub, srt!.outbound_date, srt!.return_date), "_blank");
                     window.open(makeGoogleFlightsUrl(srt!.hub, ida!.dest, srt!.outbound_date, srt!.return_date), "_blank");
                   }}
-                  style={{ marginTop: 5, fontSize: 9, background: "var(--green)", color: "var(--on-accent)", border: "none", borderRadius: 4, padding: "3px 8px", cursor: "pointer", fontFamily: "var(--mono)", fontWeight: 700 }}
+                  style={{ fontSize: 9, background: "var(--green)", color: "var(--on-accent)", border: "none", borderRadius: 4, padding: "3px 8px", cursor: "pointer", fontFamily: "var(--mono)", fontWeight: 700 }}
                 >
-                  reservar split RT →
+                  reservar →
                 </button>
+              </div>
+              {showSrtDetails && srt && (
+                <div style={{ marginTop: 8, padding: "8px 10px", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 4, fontSize: 10, color: "var(--ink-2)", display: "flex", flexDirection: "column", gap: 5 }}>
+                  <div>
+                    <span style={{ color: "var(--ink-3)", marginRight: 6, letterSpacing: 0.5 }}>LH</span>
+                    {ida!.origin}↔{srt.hub}
+                    {srt.lh_airline ? ` · ${srt.lh_airline}` : ""}
+                    {" · "}{fmtDate(srt.outbound_date)} → {fmtDate(srt.return_date)}
+                    <span style={{ color: "var(--green)", marginLeft: 6 }}>{fmtPrice(srt.lh_total)}</span>
+                  </div>
+                  <div>
+                    <span style={{ color: "var(--ink-3)", marginRight: 6, letterSpacing: 0.5 }}>EU</span>
+                    {srt.hub}↔{ida!.dest}
+                    {srt.eu_airline ? ` · ${srt.eu_airline}` : ""}
+                    {" · "}{fmtDate(srt.outbound_date)} → {fmtDate(srt.return_date)}
+                    <span style={{ color: "var(--green)", marginLeft: 6 }}>{fmtPrice(srt.eu_total)}</span>
+                  </div>
+                </div>
               )}
             </div>
           ) : srtDone ? (
