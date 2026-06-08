@@ -57,6 +57,10 @@ export interface RoundTripDirectOffer {
   return_connections: number;
   outbound_date: string;
   return_date: string;
+  hist_avg: number | null;
+  deal_pct: number | null;
+  hist_obs: number;
+  trend: "up" | "down" | "stable" | null;
 }
 
 export interface SplitRTOffer {
@@ -68,6 +72,9 @@ export interface SplitRTOffer {
   eu_airline: string;
   outbound_date: string;
   return_date: string;
+  hist_avg: number | null;
+  deal_pct: number | null;
+  hist_obs: number;
 }
 
 export interface JobResult {

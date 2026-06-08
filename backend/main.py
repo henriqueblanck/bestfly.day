@@ -324,6 +324,9 @@ async def _run_search(job_id: str, req: SearchInput):
                             timeout=25,
                         )
                         if r:
+                            await asyncio.to_thread(db.save_rt_price, origin, dest, r["total"])
+                            stats = await asyncio.to_thread(db.get_rt_stats, origin, dest)
+                            deal_pct = round((1 - r["total"] / stats["avg"]) * 100, 1) if stats["avg"] else None
                             on_log(f"  ✓ roundtrip {origin}↔{dest} {od} R${int(r['total'])}")
                             return (origin, dest, od.isoformat(), {
                                 "total": r["total"],
@@ -337,6 +340,10 @@ async def _run_search(job_id: str, req: SearchInput):
                                 "return_connections": r["ret_stops"],
                                 "outbound_date": od.isoformat(),
                                 "return_date": rd.isoformat(),
+                                "hist_avg": stats["avg"],
+                                "deal_pct": deal_pct,
+                                "hist_obs": stats["obs"],
+                                "trend": stats["trend"],
                             })
                     except asyncio.TimeoutError:
                         on_log(f"  ✗ roundtrip {origin}↔{dest}: timeout")
@@ -398,6 +405,9 @@ async def _run_search(job_id: str, req: SearchInput):
                                         )
                                         if lh and eu:
                                             total = lh["total"] + eu["total"]
+                                            await asyncio.to_thread(db.save_rt_price, origin, dest, total, "BRL", hub)
+                                            stats = await asyncio.to_thread(db.get_rt_stats, origin, dest, hub)
+                                            deal_pct = round((1 - total / stats["avg"]) * 100, 1) if stats["avg"] else None
                                             on_log(f"  ✓ split-rt {origin}↔{hub}↔{dest} R${int(total)}")
                                             return (origin, dest, hub, {
                                                 "total": total,
@@ -408,6 +418,9 @@ async def _run_search(job_id: str, req: SearchInput):
                                                 "eu_airline": eu["out_airline"],
                                                 "outbound_date": out_mid.isoformat(),
                                                 "return_date": ret_mid.isoformat(),
+                                                "hist_avg": stats["avg"],
+                                                "deal_pct": deal_pct,
+                                                "hist_obs": stats["obs"],
                                             })
                                     except asyncio.TimeoutError:
                                         on_log(f"  ✗ split-rt {origin}↔{hub}↔{dest}: timeout")

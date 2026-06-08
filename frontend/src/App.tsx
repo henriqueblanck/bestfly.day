@@ -176,6 +176,15 @@ function TotalBar({
               <div style={{ fontSize: 18, fontWeight: 700, color: col(rtTotal), letterSpacing: "-0.03em" }}>
                 {fmtPrice(rtTotal)}
               </div>
+              {rt?.hist_obs != null && rt.hist_obs >= 1 && rt.hist_avg && (
+                <div style={{ fontSize: 9, marginTop: 3, color: rt.deal_pct != null && rt.deal_pct >= 5 ? "var(--green)" : rt.deal_pct != null && rt.deal_pct <= -5 ? "var(--crimson)" : "var(--ink-3)" }}>
+                  {rt.deal_pct != null && rt.deal_pct >= 5 ? `↓ ${Math.round(rt.deal_pct)}% abaixo da média` :
+                   rt.deal_pct != null && rt.deal_pct <= -5 ? `↑ ${Math.round(-rt.deal_pct)}% acima da média` :
+                   "na média histórica"}
+                  {rt.trend === "down" ? " · tendência queda" : rt.trend === "up" ? " · tendência alta" : ""}
+                  {" · "}avg {fmtPrice(rt.hist_avg)}
+                </div>
+              )}
               {winner(rtTotal) && (
                 <button
                   onClick={() => {
@@ -217,6 +226,14 @@ function TotalBar({
               <div style={{ fontSize: 9, color: "var(--ink-3)", marginTop: 2 }}>
                 {srt?.lh_airline && srt?.eu_airline ? `${srt.lh_airline} + ${srt.eu_airline}` : ""}
               </div>
+              {srt?.hist_obs != null && srt.hist_obs >= 1 && srt.hist_avg && (
+                <div style={{ fontSize: 9, marginTop: 2, color: srt.deal_pct != null && srt.deal_pct >= 5 ? "var(--green)" : srt.deal_pct != null && srt.deal_pct <= -5 ? "var(--crimson)" : "var(--ink-3)" }}>
+                  {srt.deal_pct != null && srt.deal_pct >= 5 ? `↓ ${Math.round(srt.deal_pct)}% abaixo da média` :
+                   srt.deal_pct != null && srt.deal_pct <= -5 ? `↑ ${Math.round(-srt.deal_pct)}% acima da média` :
+                   "na média histórica"}
+                  {" · "}avg {fmtPrice(srt.hist_avg)}
+                </div>
+              )}
               {winner(srtTotal) && (
                 <button
                   onClick={() => {

@@ -60,6 +60,19 @@ def init_db() -> None:
                 updated_at  TEXT NOT NULL
             );
         """)
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS rt_price_cache (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                origin      TEXT NOT NULL,
+                destination TEXT NOT NULL,
+                hub         TEXT,
+                price       REAL NOT NULL,
+                currency    TEXT NOT NULL DEFAULT 'BRL',
+                searched_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_rt_cache
+                ON rt_price_cache(origin, destination, hub);
+        """)
         # Migrate existing DBs (idempotent — ignore errors on existing columns)
         for migration in [
             "ALTER TABLE price_cache ADD COLUMN departure_time TEXT",
@@ -245,6 +258,37 @@ def get_bulk_stats(routes: list[tuple[str, str, str]], days_back: int = 60) -> d
             "observations": row["obs"],
         }
     return result
+
+
+def save_rt_price(origin: str, destination: str, price: float, currency: str = "BRL", hub: str | None = None) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO rt_price_cache (origin, destination, hub, price, currency, searched_at) VALUES (?,?,?,?,?,?)",
+            (origin, destination, hub, price, currency, now),
+        )
+
+
+def get_rt_stats(origin: str, destination: str, hub: str | None = None) -> dict:
+    """Returns {avg, obs, deal_pct_fn} for a given RT route. deal_pct > 0 = deal."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT price, searched_at FROM rt_price_cache WHERE origin=? AND destination=? AND hub IS ? AND searched_at >= ? ORDER BY searched_at DESC LIMIT 40",
+            (origin, destination, hub, cutoff),
+        ).fetchall()
+    if not rows:
+        return {"avg": None, "obs": 0, "trend": None}
+    prices = [r["price"] for r in rows]
+    avg = sum(prices) / len(prices)
+    trend = None
+    if len(prices) >= 4:
+        half = len(prices) // 2
+        recent_avg = sum(prices[:half]) / half
+        older_avg = sum(prices[half:]) / (len(prices) - half)
+        pct = (recent_avg - older_avg) / older_avg
+        trend = "down" if pct < -0.03 else "up" if pct > 0.03 else "stable"
+    return {"avg": avg, "obs": len(prices), "trend": trend}
 
 
 def record_hub_wins(wins: list[dict]) -> None:
