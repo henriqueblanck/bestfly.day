@@ -6,6 +6,7 @@ export interface SearchPayload {
   trip_type: "oneway" | "roundtrip";
   return_date_from?: string;
   return_date_to?: string;
+  return_origins?: string[];  // Open-jaw: fly back from different cities
   max_connections: number;
   max_duration_hours: number;
   markup_percent: number;

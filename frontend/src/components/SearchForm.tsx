@@ -39,6 +39,8 @@ export function SearchForm({ onSubmit, loading }: Props) {
   const [originCodes, setOriginCodes] = useState<string[]>(saved?.origins ?? ["GRU", "BSB"]);
   const [destCodes, setDestCodes] = useState<string[]>(saved?.destinations ?? ["BCN", "PRG", "VIE"]);
   const [tripType, setTripType] = useState<"oneway" | "roundtrip">(saved?.trip_type ?? "oneway");
+  const [openJaw, setOpenJaw] = useState<boolean>(saved?.open_jaw ?? false);
+  const [returnOriginCodes, setReturnOriginCodes] = useState<string[]>(saved?.return_origins ?? []);
   const [dateFrom, setDateFrom] = useState(
     saved?.date_from && isFutureDate(saved.date_from) ? saved.date_from : todayPlus(30)
   );
@@ -62,6 +64,8 @@ export function SearchForm({ onSubmit, loading }: Props) {
         origins: originCodes,
         destinations: destCodes,
         trip_type: tripType,
+        open_jaw: openJaw,
+        return_origins: returnOriginCodes,
         date_from: dateFrom,
         date_to: dateTo,
         return_date_from: retDateFrom,
@@ -71,7 +75,7 @@ export function SearchForm({ onSubmit, loading }: Props) {
         markup_percent: markup,
       }));
     } catch { /* storage full or private mode */ }
-  }, [originCodes, destCodes, tripType, dateFrom, dateTo, retDateFrom, retDateTo, maxConn, maxDur, markup]);
+  }, [originCodes, destCodes, tripType, openJaw, returnOriginCodes, dateFrom, dateTo, retDateFrom, retDateTo, maxConn, maxDur, markup]);
 
   const outDays = dateFrom && dateTo
     ? Math.max(1, Math.round((new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / 86400000) + 1)
@@ -104,6 +108,9 @@ export function SearchForm({ onSubmit, loading }: Props) {
     if (tripType === "roundtrip") {
       payload.return_date_from = retDateFrom;
       payload.return_date_to = retDateTo;
+      if (openJaw && returnOriginCodes.length > 0) {
+        payload.return_origins = returnOriginCodes;
+      }
     }
     onSubmit(payload);
   }
@@ -155,16 +162,43 @@ export function SearchForm({ onSubmit, loading }: Props) {
         />
       </div>
 
-      {/* Return dates (roundtrip only) */}
+      {/* Return dates + open-jaw (roundtrip only) */}
       {tripType === "roundtrip" && (
-        <div>
-          <label style={labelStyle}>Volta — Janela de Datas</label>
-          <DateStrip
-            from={retDateFrom}
-            to={retDateTo}
-            onChange={(f, t) => { setRetDateFrom(f); setRetDateTo(t); }}
-          />
-        </div>
+        <>
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <label style={{ ...labelStyle, marginBottom: 0 }}>Volta — Janela de Datas</label>
+              <button
+                type="button"
+                onClick={() => setOpenJaw(v => !v)}
+                style={{
+                  fontSize: 9, fontFamily: "var(--mono)", letterSpacing: 0.5,
+                  background: openJaw ? "var(--green)" : "transparent",
+                  color: openJaw ? "var(--on-accent)" : "var(--ink-3)",
+                  border: `1px solid ${openJaw ? "var(--green)" : "var(--line-2)"}`,
+                  borderRadius: 4, padding: "3px 8px", cursor: "pointer",
+                }}
+              >
+                open-jaw {openJaw ? "✓" : "+"}
+              </button>
+            </div>
+            <DateStrip
+              from={retDateFrom}
+              to={retDateTo}
+              onChange={(f, t) => { setRetDateFrom(f); setRetDateTo(t); }}
+            />
+          </div>
+          {openJaw && (
+            <AirportTagInput
+              label="Regressar de"
+              hint="diferente dos destinos — ex: LHR, LGW"
+              value={returnOriginCodes}
+              onChange={setReturnOriginCodes}
+              max={5}
+              placeholder="Londres, Frankfurt…"
+            />
+          )}
+        </>
       )}
 
       {/* Advanced row */}

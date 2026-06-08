@@ -81,6 +81,7 @@ class SearchInput(BaseModel):
     trip_type: Literal["oneway", "roundtrip"] = "oneway"
     return_date_from: date | None = None
     return_date_to: date | None = None
+    return_origins: list[str] | None = None  # Open-jaw: fly back from different cities
     max_connections: int = 1
     max_duration_hours: int = 36
     markup_percent: float = 0.0
@@ -97,6 +98,15 @@ class SearchInput(BaseModel):
     def max_five_destinations(cls, v):
         if len(v) > 5:
             raise ValueError("Max 5 destinations")
+        return [x.upper() for x in v]
+
+    @field_validator("return_origins")
+    @classmethod
+    def max_two_return_origins(cls, v):
+        if v is None:
+            return v
+        if len(v) > 5:
+            raise ValueError("Max 5 return origins")
         return [x.upper() for x in v]
 
     @model_validator(mode="after")
@@ -198,11 +208,16 @@ async def _run_search(job_id: str, req: SearchInput):
 
         # ── Return (roundtrip) ──
         if req.trip_type == "roundtrip" and req.return_date_from:
-            on_log("[volta] iniciando busca de retorno…")
+            # Open-jaw: return from different cities if specified
+            ret_origins = req.return_origins if req.return_origins else req.destinations
+            if req.return_origins:
+                on_log(f"[volta] open-jaw: regresso de {', '.join(ret_origins)}…")
+            else:
+                on_log("[volta] iniciando busca de retorno…")
             ret_end = req.return_date_to or req.return_date_from
             ret_engine = SplitTicketingEngine(log_fn=on_log, partial_fn=None)
             return_req = SearchRequest(
-                origins=req.destinations,   # flipped
+                origins=ret_origins,        # open-jaw or flipped destinations
                 destinations=req.origins,   # flipped
                 hub_candidates=HUB_CANDIDATES,
                 date_from=req.return_date_from,

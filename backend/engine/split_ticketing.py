@@ -28,8 +28,8 @@ MarkupFn = Callable[[Decimal], Decimal]
 LogFn = Callable[[str], None]
 PartialFn = Callable[["PriceMatrix"], None]
 
-CONCURRENT_SEARCHES = 6      # max simultaneous fli calls
-INTER_REQUEST_DELAY = 0.5    # seconds between each semaphore acquisition
+CONCURRENT_SEARCHES = 8      # max simultaneous fli calls
+INTER_REQUEST_DELAY = 0.2    # seconds between each semaphore acquisition
 
 
 @dataclass
