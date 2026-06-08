@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import "./styles.css";
+import { makeGoogleFlightsUrl } from "./utils/googleFlights";
 import { Landing } from "./components/Landing";
 import { SearchForm } from "./components/SearchForm";
 import { PriceMatrix } from "./components/PriceMatrix";
@@ -154,8 +155,8 @@ function TotalBar({
                 {winner(pairTotal) && (
                   <button
                     onClick={() => {
-                      window.open(`https://www.google.com/travel/flights?q=${ida!.origin}+to+${ida!.dest}+on+${ida!.date}&curr=BRL`, "_blank");
-                      window.open(`https://www.google.com/travel/flights?q=${volta!.origin}+to+${volta!.dest}+on+${volta!.date}&curr=BRL`, "_blank");
+                      window.open(makeGoogleFlightsUrl(ida!.origin, ida!.dest, ida!.date), "_blank");
+                      window.open(makeGoogleFlightsUrl(volta!.origin, volta!.dest, volta!.date), "_blank");
                     }}
                     style={{ marginTop: 5, fontSize: 9, background: "var(--green)", color: "var(--on-accent)", border: "none", borderRadius: 4, padding: "3px 8px", cursor: "pointer", fontFamily: "var(--mono)", fontWeight: 700 }}
                   >
@@ -190,7 +191,7 @@ function TotalBar({
                   onClick={() => {
                     const retDate = rt?.return_date || volta!.date;
                     window.open(
-                      `https://www.google.com/travel/flights?q=flights+from+${ida!.origin}+to+${ida!.dest}+on+${ida!.date}+returning+${retDate}&curr=BRL`,
+                      makeGoogleFlightsUrl(ida!.origin, ida!.dest, ida!.date, retDate),
                       "_blank"
                     );
                   }}
@@ -237,8 +238,8 @@ function TotalBar({
               {winner(srtTotal) && (
                 <button
                   onClick={() => {
-                    window.open(`https://www.google.com/travel/flights?q=flights+from+${ida!.origin}+to+${srt!.hub}+on+${srt!.outbound_date}+returning+${srt!.return_date}&curr=BRL`, "_blank");
-                    window.open(`https://www.google.com/travel/flights?q=flights+from+${srt!.hub}+to+${ida!.dest}+on+${srt!.outbound_date}+returning+${srt!.return_date}&curr=BRL`, "_blank");
+                    window.open(makeGoogleFlightsUrl(ida!.origin, srt!.hub, srt!.outbound_date, srt!.return_date), "_blank");
+                    window.open(makeGoogleFlightsUrl(srt!.hub, ida!.dest, srt!.outbound_date, srt!.return_date), "_blank");
                   }}
                   style={{ marginTop: 5, fontSize: 9, background: "var(--green)", color: "var(--on-accent)", border: "none", borderRadius: 4, padding: "3px 8px", cursor: "pointer", fontFamily: "var(--mono)", fontWeight: 700 }}
                 >

@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useRef } from "react";
 import type { Matrix, MatrixEntry } from "../api/search";
+import { makeGoogleFlightsUrl } from "../utils/googleFlights";
 
 // ── City name lookup ──────────────────────────────────────────────────────────
 const CITY_NAMES: Record<string, string> = {
@@ -117,8 +118,8 @@ interface Props {
 
 // ── Book helper ───────────────────────────────────────────────────────────────
 function openBothLegs(origin: string, hub: string, dest: string, date: string) {
-  window.open(`https://www.google.com/travel/flights?q=${origin}+to+${hub}+on+${date}`, "_blank");
-  window.open(`https://www.google.com/travel/flights?q=${hub}+to+${dest}+on+${date}`, "_blank");
+  window.open(makeGoogleFlightsUrl(origin, hub, date), "_blank");
+  window.open(makeGoogleFlightsUrl(hub, dest, date), "_blank");
 }
 
 // ── Self-transfer warning ─────────────────────────────────────────────────────
@@ -1117,7 +1118,7 @@ function FlightDetailModal({
               if (hub !== "DIRECT") {
                 onBook ? onBook(origin, hub, dest, date) : openBothLegs(origin, hub, dest, date);
               } else {
-                window.open(`https://www.google.com/travel/flights?q=${origin}+to+${dest}+on+${date}`, "_blank");
+                window.open(makeGoogleFlightsUrl(origin, dest, date), "_blank");
               }
               onClose();
             }}
