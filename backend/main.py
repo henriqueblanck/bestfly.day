@@ -126,6 +126,7 @@ class JobResponse(BaseModel):
     matrix: dict | None = None
     return_matrix: dict | None = None
     roundtrip_direct: dict | None = None
+    split_rt: dict | None = None
     logs: list[str] = []
     error: str | None = None
 
@@ -306,12 +307,74 @@ async def _run_search(job_id: str, req: SearchInput):
                                 continue
                             o, d, out_iso, offer_data = r
                             rt_results.setdefault(o, {}).setdefault(d, {})[out_iso] = offer_data
-                        # {} signals "done, no results" (distinct from null = still running)
                         jobs[job_id]["roundtrip_direct"] = rt_results
+
+                        # ── Phase 3: split round-trip ──
+                        # RT(origin↔hub) + RT(hub↔dest) per winning hub
+                        # Hub ranking from outbound matrix
+                        hub_counts: dict[str, int] = {}
+                        for orig_data in (jobs[job_id].get("matrix") or {}).values():
+                            for dest_data in orig_data.values():
+                                for cell in dest_data.values():
+                                    h = cell.get("hub")
+                                    if h and h != "DIRECT":
+                                        hub_counts[h] = hub_counts.get(h, 0) + 1
+                        top_hubs = sorted(hub_counts, key=hub_counts.get, reverse=True)[:4]  # type: ignore[arg-type]
+
+                        if top_hubs:
+                            out_mid = req.date_from + (req.date_to - req.date_from) // 2
+                            ret_mid = req.return_date_from + (ret_end - req.return_date_from) // 2
+
+                            _srt_sem = asyncio.Semaphore(3)
+
+                            async def _probe_split_rt(origin: str, dest: str, hub: str) -> tuple | None:
+                                async with _srt_sem:
+                                    try:
+                                        lh = await rt_client.search_round_trip(origin, hub, out_mid, ret_mid, req.max_connections)
+                                        eu = await rt_client.search_round_trip(hub, dest, out_mid, ret_mid, req.max_connections)
+                                        if lh and eu:
+                                            total = float(lh.total_price + eu.total_price)
+                                            on_log(f"  ✓ split-rt {origin}↔{hub}↔{dest} R${int(total)}")
+                                            return (origin, dest, hub, {
+                                                "total": total,
+                                                "lh_total": float(lh.total_price),
+                                                "eu_total": float(eu.total_price),
+                                                "hub": hub,
+                                                "lh_airline": lh.outbound_airline or "",
+                                                "eu_airline": eu.outbound_airline or "",
+                                                "outbound_date": out_mid.isoformat(),
+                                                "return_date": ret_mid.isoformat(),
+                                            })
+                                    except Exception as exc:
+                                        on_log(f"  ✗ split-rt {origin}↔{hub}↔{dest}: {exc}")
+                                return None
+
+                            srt_combos = [
+                                (o, d, hub)
+                                for o in req.origins
+                                for d in req.destinations
+                                for hub in top_hubs
+                            ]
+                            on_log(f"[split-rt] {len(srt_combos)} combos via {top_hubs}…")
+                            srt_raw = await asyncio.gather(*[_probe_split_rt(*c) for c in srt_combos])
+
+                            split_rt: dict[str, dict[str, Any]] = {}
+                            for r in srt_raw:
+                                if r is None:
+                                    continue
+                                o, d, hub, offer = r
+                                existing = split_rt.get(o, {}).get(d)
+                                if existing is None or offer["total"] < existing["total"]:
+                                    split_rt.setdefault(o, {})[d] = offer
+                            jobs[job_id]["split_rt"] = split_rt
+                        else:
+                            jobs[job_id]["split_rt"] = {}
+
                         await asyncio.to_thread(db.save_job, job_id, jobs[job_id])
                 except asyncio.TimeoutError:
-                    on_log("[roundtrip] timeout — preço consolidado indisponível")
+                    on_log("[roundtrip] timeout — preços consolidados indisponíveis")
                     jobs[job_id]["roundtrip_direct"] = {}
+                    jobs[job_id]["split_rt"] = {}
                     await asyncio.to_thread(db.save_job, job_id, jobs[job_id])
 
             asyncio.create_task(_run_rt_bg())
@@ -582,6 +645,8 @@ async def start_search(body: SearchInput, background: BackgroundTasks):
         "status": "queued",
         "matrix": None,
         "return_matrix": None,
+        "roundtrip_direct": None,
+        "split_rt": None,
         "logs": [],
         "error": None,
         "created_at": datetime.now(timezone.utc).isoformat(),

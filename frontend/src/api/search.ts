@@ -59,13 +59,24 @@ export interface RoundTripDirectOffer {
   return_date: string;
 }
 
+export interface SplitRTOffer {
+  total: number;
+  lh_total: number;
+  eu_total: number;
+  hub: string;
+  lh_airline: string;
+  eu_airline: string;
+  outbound_date: string;
+  return_date: string;
+}
+
 export interface JobResult {
   job_id: string;
   status: "queued" | "running" | "complete" | "failed";
   matrix: Matrix | null;
   return_matrix: Matrix | null;
-  // Indexed by origin → dest → outbound_date_iso → offer
   roundtrip_direct: Record<string, Record<string, Record<string, RoundTripDirectOffer>>> | null;
+  split_rt: Record<string, Record<string, SplitRTOffer>> | null;
   logs: string[];
   error: string | null;
 }

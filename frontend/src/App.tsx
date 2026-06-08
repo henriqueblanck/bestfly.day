@@ -6,7 +6,7 @@ import { PriceMatrix } from "./components/PriceMatrix";
 import type { PinnedLeg } from "./components/PriceMatrix";
 import { TerminalLog } from "./components/TerminalLog";
 import { startSearch, waitForMatrix, TimeoutWithPartialResult } from "./api/search";
-import type { Matrix, SearchPayload, RoundTripDirectOffer } from "./api/search";
+import type { Matrix, SearchPayload, RoundTripDirectOffer, SplitRTOffer } from "./api/search";
 import type { LogLine } from "./components/TerminalLog";
 
 function fmtPrice(v: number): string {
@@ -38,11 +38,12 @@ function findBestCell(matrix: Matrix, origin: string): PinnedLeg | null {
 }
 
 function TotalBar({
-  ida, volta, roundtripDirect,
+  ida, volta, roundtripDirect, splitRt,
 }: {
   ida: PinnedLeg | null;
   volta: PinnedLeg | null;
   roundtripDirect: Record<string, Record<string, Record<string, RoundTripDirectOffer>>> | null;
+  splitRt: Record<string, Record<string, SplitRTOffer>> | null;
 }) {
   const bothSelected = !!(ida && volta);
 
@@ -56,7 +57,7 @@ function TotalBar({
       ? ida.direct_price + volta.direct_price
       : null;
 
-  // ③ fli round-trip consolidated fare — look up exact pinned date, fall back to cheapest
+  // ③ RT consolidado direto
   const rt = (() => {
     if (!ida || !volta) return null;
     const byDate = roundtripDirect?.[ida.origin]?.[ida.dest];
@@ -69,8 +70,15 @@ function TotalBar({
   })();
   const rtTotal = rt?.total ?? null;
 
-  // Best across all three options
-  const options = [splitTotal, pairTotal, rtTotal].filter((v): v is number => v != null);
+  // ④ Split RT: RT(origin↔hub) + RT(hub↔dest)
+  const srt: SplitRTOffer | null = ida && volta
+    ? (splitRt?.[ida.origin]?.[ida.dest] ?? null)
+    : null;
+  const srtTotal = srt?.total ?? null;
+  const srtDone = splitRt !== null;
+
+  // Best across all options
+  const options = [splitTotal, pairTotal, rtTotal, srtTotal].filter((v): v is number => v != null);
   const best = options.length ? Math.min(...options) : null;
 
   function col(v: number | null) {
@@ -184,16 +192,52 @@ function TotalBar({
               )}
             </div>
           ) : roundtripDirect === null ? (
-            /* null = background task still running */
             <div style={{ flex: 1, minWidth: 110 }}>
               <div style={{ fontSize: 9, color: "var(--ink-3)", marginBottom: 2, letterSpacing: 0.8 }}>IDA+VOLTA ÚNICO</div>
               <div style={{ fontSize: 11, color: "var(--ink-3)", fontStyle: "italic" }}>buscando…</div>
             </div>
           ) : (
-            /* {} = task done, no results found */
             <div style={{ flex: 1, minWidth: 110 }}>
               <div style={{ fontSize: 9, color: "var(--ink-3)", marginBottom: 2, letterSpacing: 0.8 }}>IDA+VOLTA ÚNICO</div>
               <div style={{ fontSize: 11, color: "var(--ink-3)" }}>—</div>
+            </div>
+          )}
+
+          <div style={{ color: "var(--line-2)", alignSelf: "center", fontSize: 11 }}>vs</div>
+
+          {/* ④ Split RT */}
+          {srtTotal != null ? (
+            <div style={{ flex: 1, minWidth: 130 }}>
+              <div style={{ fontSize: 9, color: "var(--ink-3)", marginBottom: 2, letterSpacing: 0.8 }}>
+                {winner(srtTotal) ? "✦ MELHOR · " : ""}SPLIT RT{srt?.hub ? ` · via ${srt.hub}` : ""}
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: col(srtTotal), letterSpacing: "-0.03em" }}>
+                {fmtPrice(srtTotal)}
+              </div>
+              <div style={{ fontSize: 9, color: "var(--ink-3)", marginTop: 2 }}>
+                {srt?.lh_airline && srt?.eu_airline ? `${srt.lh_airline} + ${srt.eu_airline}` : ""}
+              </div>
+              {winner(srtTotal) && (
+                <button
+                  onClick={() => {
+                    window.open(`https://www.google.com/travel/flights?q=flights+from+${ida!.origin}+to+${srt!.hub}+on+${srt!.outbound_date}+returning+${srt!.return_date}&curr=BRL`, "_blank");
+                    window.open(`https://www.google.com/travel/flights?q=flights+from+${srt!.hub}+to+${ida!.dest}+on+${srt!.outbound_date}+returning+${srt!.return_date}&curr=BRL`, "_blank");
+                  }}
+                  style={{ marginTop: 5, fontSize: 9, background: "var(--green)", color: "var(--on-accent)", border: "none", borderRadius: 4, padding: "3px 8px", cursor: "pointer", fontFamily: "var(--mono)", fontWeight: 700 }}
+                >
+                  reservar split RT →
+                </button>
+              )}
+            </div>
+          ) : srtDone ? (
+            <div style={{ flex: 1, minWidth: 130 }}>
+              <div style={{ fontSize: 9, color: "var(--ink-3)", marginBottom: 2, letterSpacing: 0.8 }}>SPLIT RT</div>
+              <div style={{ fontSize: 11, color: "var(--ink-3)" }}>—</div>
+            </div>
+          ) : (
+            <div style={{ flex: 1, minWidth: 130 }}>
+              <div style={{ fontSize: 9, color: "var(--ink-3)", marginBottom: 2, letterSpacing: 0.8 }}>SPLIT RT</div>
+              <div style={{ fontSize: 11, color: "var(--ink-3)", fontStyle: "italic" }}>buscando…</div>
             </div>
           )}
         </div>
@@ -232,6 +276,7 @@ export default function App() {
   const [pinnedIda, setPinnedIda] = useState<PinnedLeg | null>(null);
   const [pinnedVolta, setPinnedVolta] = useState<PinnedLeg | null>(null);
   const [roundtripDirect, setRoundtripDirect] = useState<Record<string, Record<string, Record<string, RoundTripDirectOffer>>> | null>(null);
+  const [splitRt, setSplitRt] = useState<Record<string, Record<string, SplitRTOffer>> | null>(null);
 
   const addLog = useCallback((line: LogLine) => {
     setLogs((prev) => [...prev, line]);
@@ -263,6 +308,7 @@ export default function App() {
     setPinnedIda(null);
     setPinnedVolta(null);
     setRoundtripDirect(null);
+    setSplitRt(null);
     seenStatuses.current.clear();
     setTripType(payload.trip_type);
     setLogs([
@@ -297,6 +343,7 @@ export default function App() {
       setMatrix(result.matrix);
       setReturnMatrix(result.return_matrix);
       if (result.roundtrip_direct) setRoundtripDirect(result.roundtrip_direct);
+      if (result.split_rt !== undefined) setSplitRt(result.split_rt);
 
       // Auto-pin best cells for roundtrip total
       if (payload.trip_type === "roundtrip" && result.matrix && result.return_matrix) {
@@ -418,7 +465,7 @@ export default function App() {
 
             {/* Total bar (roundtrip) */}
             {tripType === "roundtrip" && hasMatrix && (
-              <TotalBar ida={pinnedIda} volta={pinnedVolta} roundtripDirect={roundtripDirect} />
+              <TotalBar ida={pinnedIda} volta={pinnedVolta} roundtripDirect={roundtripDirect} splitRt={splitRt} />
             )}
 
             {/* Origin tabs */}

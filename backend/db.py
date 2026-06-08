@@ -54,16 +54,21 @@ def init_db() -> None:
                 matrix_json TEXT,
                 return_matrix_json TEXT,
                 roundtrip_direct_json TEXT,
+                split_rt_json TEXT,
                 error       TEXT,
                 created_at  TEXT NOT NULL,
                 updated_at  TEXT NOT NULL
             );
         """)
-        # Migrate existing DBs that predate the departure_time column
-        try:
-            conn.execute("ALTER TABLE price_cache ADD COLUMN departure_time TEXT")
-        except Exception:
-            pass
+        # Migrate existing DBs (idempotent — ignore errors on existing columns)
+        for migration in [
+            "ALTER TABLE price_cache ADD COLUMN departure_time TEXT",
+            "ALTER TABLE jobs ADD COLUMN split_rt_json TEXT",
+        ]:
+            try:
+                conn.execute(migration)
+            except Exception:
+                pass
     log.info("DB initialised at %s", DB_PATH)
 
 
@@ -74,15 +79,16 @@ def save_job(job_id: str, job: dict) -> None:
         conn.execute(
             """
             INSERT INTO jobs (job_id, status, logs_json, matrix_json,
-                              return_matrix_json, roundtrip_direct_json,
+                              return_matrix_json, roundtrip_direct_json, split_rt_json,
                               error, created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(job_id) DO UPDATE SET
                 status=excluded.status,
                 logs_json=excluded.logs_json,
                 matrix_json=excluded.matrix_json,
                 return_matrix_json=excluded.return_matrix_json,
                 roundtrip_direct_json=excluded.roundtrip_direct_json,
+                split_rt_json=excluded.split_rt_json,
                 error=excluded.error,
                 updated_at=excluded.updated_at
             """,
@@ -92,7 +98,8 @@ def save_job(job_id: str, job: dict) -> None:
                 json.dumps(job.get("logs", [])),
                 json.dumps(job["matrix"]) if job.get("matrix") else None,
                 json.dumps(job["return_matrix"]) if job.get("return_matrix") else None,
-                json.dumps(job["roundtrip_direct"]) if job.get("roundtrip_direct") else None,
+                json.dumps(job["roundtrip_direct"]) if job.get("roundtrip_direct") is not None else None,
+                json.dumps(job["split_rt"]) if job.get("split_rt") is not None else None,
                 job.get("error"),
                 job.get("created_at", now),
                 now,
@@ -116,6 +123,7 @@ def load_jobs(ttl_seconds: int = 3600) -> dict:
             "matrix": json.loads(row["matrix_json"]) if row["matrix_json"] else None,
             "return_matrix": json.loads(row["return_matrix_json"]) if row["return_matrix_json"] else None,
             "roundtrip_direct": json.loads(row["roundtrip_direct_json"]) if row["roundtrip_direct_json"] else None,
+            "split_rt": json.loads(row["split_rt_json"]) if row["split_rt_json"] else None,
             "error": row["error"],
             "created_at": row["created_at"],
         }
