@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { SearchPayload } from "../api/search";
 import { AirportTagInput } from "./AirportTagInput";
 
@@ -8,9 +8,10 @@ interface Props {
 }
 
 const DATE_RANGE_DAYS = 10;
-const HUB_CANDIDATES = 42; // pool probed in phase 1 (server-side)
-const TOP_K = 4;           // typical hubs selected after probe (dynamic, depends on budget)
+const HUB_CANDIDATES = 42;
+const TOP_K = 4;
 const MAX_COMBOS = 500;
+const LS_KEY = "bestfly:last_search";
 
 function todayPlus(n: number): string {
   const d = new Date();
@@ -18,17 +19,59 @@ function todayPlus(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+function isFutureDate(iso: string): boolean {
+  return iso >= new Date().toISOString().slice(0, 10);
+}
+
+function loadSaved() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 export function SearchForm({ onSubmit, loading }: Props) {
-  const [originCodes, setOriginCodes] = useState<string[]>(["GRU", "BSB"]);
-  const [destCodes, setDestCodes] = useState<string[]>(["BCN", "PRG", "VIE"]);
-  const [tripType, setTripType] = useState<"oneway" | "roundtrip">("oneway");
-  const [dateFrom, setDateFrom] = useState(todayPlus(30));
-  const [dateTo, setDateTo] = useState(todayPlus(33));
-  const [retDateFrom, setRetDateFrom] = useState(todayPlus(44));
-  const [retDateTo, setRetDateTo] = useState(todayPlus(45));
-  const [maxConn, setMaxConn] = useState(1);
-  const [maxDur, setMaxDur] = useState(36);
-  const [markup, setMarkup] = useState(0);
+  const saved = loadSaved();
+
+  const [originCodes, setOriginCodes] = useState<string[]>(saved?.origins ?? ["GRU", "BSB"]);
+  const [destCodes, setDestCodes] = useState<string[]>(saved?.destinations ?? ["BCN", "PRG", "VIE"]);
+  const [tripType, setTripType] = useState<"oneway" | "roundtrip">(saved?.trip_type ?? "oneway");
+  const [dateFrom, setDateFrom] = useState(
+    saved?.date_from && isFutureDate(saved.date_from) ? saved.date_from : todayPlus(30)
+  );
+  const [dateTo, setDateTo] = useState(
+    saved?.date_to && isFutureDate(saved.date_to) ? saved.date_to : todayPlus(33)
+  );
+  const [retDateFrom, setRetDateFrom] = useState(
+    saved?.return_date_from && isFutureDate(saved.return_date_from) ? saved.return_date_from : todayPlus(44)
+  );
+  const [retDateTo, setRetDateTo] = useState(
+    saved?.return_date_to && isFutureDate(saved.return_date_to) ? saved.return_date_to : todayPlus(45)
+  );
+  const [maxConn, setMaxConn] = useState(saved?.max_connections ?? 1);
+  const [maxDur, setMaxDur] = useState(saved?.max_duration_hours ?? 36);
+  const [markup, setMarkup] = useState(saved?.markup_percent ?? 0);
+
+  // Persist whenever any field changes
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify({
+        origins: originCodes,
+        destinations: destCodes,
+        trip_type: tripType,
+        date_from: dateFrom,
+        date_to: dateTo,
+        return_date_from: retDateFrom,
+        return_date_to: retDateTo,
+        max_connections: maxConn,
+        max_duration_hours: maxDur,
+        markup_percent: markup,
+      }));
+    } catch { /* storage full or private mode */ }
+  }, [originCodes, destCodes, tripType, dateFrom, dateTo, retDateFrom, retDateTo, maxConn, maxDur, markup]);
 
   const outDays = dateFrom && dateTo
     ? Math.max(1, Math.round((new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / 86400000) + 1)
