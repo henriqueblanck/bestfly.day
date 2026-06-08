@@ -681,10 +681,18 @@ async def debug_fli(origin: str = "GRU", destination: str = "MAD", date: str | N
 
 def _purge_old_jobs() -> None:
     cutoff = time.time() - _JOB_TTL_SECONDS
-    to_delete = [
-        jid for jid, j in jobs.items()
-        if j["status"] in ("complete", "failed") and j.get("created_at", 0) < cutoff
-    ]
+    to_delete = []
+    for jid, j in jobs.items():
+        if j["status"] not in ("complete", "failed"):
+            continue
+        ca = j.get("created_at", 0)
+        if isinstance(ca, str):
+            try:
+                ca = datetime.fromisoformat(ca).timestamp()
+            except Exception:
+                ca = 0
+        if ca < cutoff:
+            to_delete.append(jid)
     for jid in to_delete:
         del jobs[jid]
 
