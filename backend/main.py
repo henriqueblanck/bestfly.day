@@ -291,20 +291,19 @@ async def _run_search(job_id: str, req: SearchInput):
 
             async def _run_rt_bg():
                 try:
-                    async with asyncio.timeout(120):
+                    async with asyncio.timeout(180):
                         out_mid = req.date_from + (req.date_to - req.date_from) // 2
                         ret_mid = req.return_date_from + (ret_end - req.return_date_from) // 2
 
                         # ── Phase 1: RT(origin↔hub) for all RT hub candidates ──
-                        # Concurrency 5 to respect rate limits while staying fast.
-                        _ph1_sem = asyncio.Semaphore(5)
+                        _ph1_sem = asyncio.Semaphore(10)
 
                         async def _probe_lh(origin: str, hub: str) -> tuple | None:
                             async with _ph1_sem:
                                 try:
                                     r = await asyncio.wait_for(
                                         asyncio.to_thread(_fli_rt_sync, origin, hub, out_mid, ret_mid),
-                                        timeout=25,
+                                        timeout=15,
                                     )
                                     if r:
                                         on_log(f"  [lh] RT {origin}↔{hub} R${int(r['total'])}")
@@ -338,14 +337,14 @@ async def _run_search(job_id: str, req: SearchInput):
                                        " · ".join(f"{h} R${int(ph1_offers[origin][h]['total'])}" for h in top))
 
                         # ── Phase 2: RT(hub↔dest) + direct RT(ori↔dest) in parallel ──
-                        _ph2_sem = asyncio.Semaphore(4)
+                        _ph2_sem = asyncio.Semaphore(8)
 
                         async def _probe_eu(origin: str, dest: str, hub: str) -> tuple | None:
                             async with _ph2_sem:
                                 try:
                                     r = await asyncio.wait_for(
                                         asyncio.to_thread(_fli_rt_sync, hub, dest, out_mid, ret_mid),
-                                        timeout=25,
+                                        timeout=15,
                                     )
                                     if r:
                                         lh = ph1_offers[origin][hub]
@@ -378,7 +377,7 @@ async def _run_search(job_id: str, req: SearchInput):
                                 try:
                                     r = await asyncio.wait_for(
                                         asyncio.to_thread(_fli_rt_sync, origin, dest, out_mid, ret_mid),
-                                        timeout=25,
+                                        timeout=15,
                                     )
                                     if r:
                                         await asyncio.to_thread(db.save_rt_price, origin, dest, r["total"])
