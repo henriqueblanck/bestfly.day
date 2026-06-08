@@ -254,29 +254,71 @@ async def _run_search(job_id: str, req: SearchInput):
 
             _rt_sem = asyncio.Semaphore(3)
 
+            def _fli_rt_sync(orig: str, dst: str, od, rd):
+                """Synchronous fli round-trip search — run in thread."""
+                from fli.models import (
+                    Airport, FlightSearchFilters, FlightSegment,
+                    MaxStops, PassengerInfo, TripType,
+                )
+                from fli.search.flights import SearchFlights
+                try:
+                    orig_ap = Airport[orig]
+                    dst_ap = Airport[dst]
+                except KeyError:
+                    return None
+                stops_map = {0: MaxStops.NON_STOP, 1: MaxStops.ONE_STOP_OR_FEWER, 2: MaxStops.TWO_OR_FEWER_STOPS}
+                max_stops = stops_map.get(req.max_connections, MaxStops.ONE_STOP_OR_FEWER)
+                filters = FlightSearchFilters(
+                    trip_type=TripType.ROUND_TRIP,
+                    passenger_info=PassengerInfo(adults=1),
+                    flight_segments=[
+                        FlightSegment(
+                            departure_airport=[[orig_ap, 0]],
+                            arrival_airport=[[dst_ap, 0]],
+                            travel_date=od.isoformat(),
+                            max_stops=max_stops,
+                        ),
+                        FlightSegment(
+                            departure_airport=[[dst_ap, 0]],
+                            arrival_airport=[[orig_ap, 0]],
+                            travel_date=rd.isoformat(),
+                            max_stops=max_stops,
+                        ),
+                    ],
+                )
+                return SearchFlights().search(filters, top_n=3, currency="BRL")
+
             async def _probe_rt(origin: str, dest: str, od, rd) -> tuple | None:
                 async with _rt_sem:
                     try:
-                        offer = await rt_client.search_round_trip(
-                            origin, dest, od, rd, req.max_connections
+                        results = await asyncio.wait_for(
+                            asyncio.to_thread(_fli_rt_sync, origin, dest, od, rd),
+                            timeout=25,
                         )
-                        if offer:
-                            on_log(f"  ✓ roundtrip {origin}↔{dest} {od} R${int(offer.total_price)}")
-                            return (origin, dest, od.isoformat(), {
-                                "total": float(offer.total_price),
-                                "outbound": float(offer.outbound_price),
-                                "return": float(offer.return_price),
-                                "outbound_airline": offer.outbound_airline,
-                                "return_airline": offer.return_airline,
-                                "outbound_duration_minutes": offer.outbound_duration_minutes,
-                                "return_duration_minutes": offer.return_duration_minutes,
-                                "outbound_connections": offer.outbound_connections,
-                                "return_connections": offer.return_connections,
-                                "outbound_date": od.isoformat(),
-                                "return_date": rd.isoformat(),
-                            })
-                    except UnknownAirportError as e:
-                        on_log(f"  ✗ {e}")
+                        if results:
+                            best = min(results, key=lambda r: r.price or float("inf"))
+                            if best.price:
+                                total = float(best.price)
+                                airline = ""
+                                if best.legs and best.legs[0].airline:
+                                    airline = best.legs[0].airline.value
+                                dur = int(best.duration or 0)
+                                on_log(f"  ✓ roundtrip {origin}↔{dest} {od} R${int(total)}")
+                                return (origin, dest, od.isoformat(), {
+                                    "total": total,
+                                    "outbound": total / 2,
+                                    "return": total / 2,
+                                    "outbound_airline": airline,
+                                    "return_airline": airline,
+                                    "outbound_duration_minutes": dur // 2,
+                                    "return_duration_minutes": dur // 2,
+                                    "outbound_connections": best.stops or 0,
+                                    "return_connections": best.stops or 0,
+                                    "outbound_date": od.isoformat(),
+                                    "return_date": rd.isoformat(),
+                                })
+                    except asyncio.TimeoutError:
+                        on_log(f"  ✗ roundtrip {origin}↔{dest}: timeout")
                     except Exception as exc:
                         on_log(f"  ✗ roundtrip {origin}↔{dest}: {exc}")
                     return None
@@ -329,21 +371,32 @@ async def _run_search(job_id: str, req: SearchInput):
                             async def _probe_split_rt(origin: str, dest: str, hub: str) -> tuple | None:
                                 async with _srt_sem:
                                     try:
-                                        lh = await rt_client.search_round_trip(origin, hub, out_mid, ret_mid, req.max_connections)
-                                        eu = await rt_client.search_round_trip(hub, dest, out_mid, ret_mid, req.max_connections)
-                                        if lh and eu:
-                                            total = float(lh.total_price + eu.total_price)
-                                            on_log(f"  ✓ split-rt {origin}↔{hub}↔{dest} R${int(total)}")
-                                            return (origin, dest, hub, {
-                                                "total": total,
-                                                "lh_total": float(lh.total_price),
-                                                "eu_total": float(eu.total_price),
-                                                "hub": hub,
-                                                "lh_airline": lh.outbound_airline or "",
-                                                "eu_airline": eu.outbound_airline or "",
-                                                "outbound_date": out_mid.isoformat(),
-                                                "return_date": ret_mid.isoformat(),
-                                            })
+                                        lh_results, eu_results = await asyncio.gather(
+                                            asyncio.wait_for(asyncio.to_thread(_fli_rt_sync, origin, hub, out_mid, ret_mid), timeout=25),
+                                            asyncio.wait_for(asyncio.to_thread(_fli_rt_sync, hub, dest, out_mid, ret_mid), timeout=25),
+                                        )
+                                        if lh_results and eu_results:
+                                            lh_best = min(lh_results, key=lambda r: r.price or float("inf"))
+                                            eu_best = min(eu_results, key=lambda r: r.price or float("inf"))
+                                            if lh_best.price and eu_best.price:
+                                                lh_total = float(lh_best.price)
+                                                eu_total = float(eu_best.price)
+                                                total = lh_total + eu_total
+                                                lh_airline = lh_best.legs[0].airline.value if lh_best.legs and lh_best.legs[0].airline else ""
+                                                eu_airline = eu_best.legs[0].airline.value if eu_best.legs and eu_best.legs[0].airline else ""
+                                                on_log(f"  ✓ split-rt {origin}↔{hub}↔{dest} R${int(total)}")
+                                                return (origin, dest, hub, {
+                                                    "total": total,
+                                                    "lh_total": lh_total,
+                                                    "eu_total": eu_total,
+                                                    "hub": hub,
+                                                    "lh_airline": lh_airline,
+                                                    "eu_airline": eu_airline,
+                                                    "outbound_date": out_mid.isoformat(),
+                                                    "return_date": ret_mid.isoformat(),
+                                                })
+                                    except asyncio.TimeoutError:
+                                        on_log(f"  ✗ split-rt {origin}↔{hub}↔{dest}: timeout")
                                     except Exception as exc:
                                         on_log(f"  ✗ split-rt {origin}↔{hub}↔{dest}: {exc}")
                                 return None
