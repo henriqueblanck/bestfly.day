@@ -212,21 +212,63 @@ function TotalBar({
                 </button>
               </div>
               {showRtDetails && rt && (
-                <div style={{ marginTop: 8, padding: "8px 10px", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 4, fontSize: 10, color: "var(--ink-2)", display: "flex", flexDirection: "column", gap: 5 }}>
-                  <div>
-                    <span style={{ color: "var(--ink-3)", marginRight: 6, letterSpacing: 0.5 }}>IDA  </span>
-                    {fmtDate(rt.outbound_date)}
-                    {rt.outbound_airline ? ` · ${rt.outbound_airline}` : ""}
-                    {rt.outbound_duration_minutes ? ` · ${fmtDur(rt.outbound_duration_minutes)}` : ""}
-                    {" · "}{rt.outbound_connections === 0 ? "direto" : `${rt.outbound_connections} parada${rt.outbound_connections > 1 ? "s" : ""}`}
+                <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6, fontFamily: "var(--mono)", fontSize: 10 }}>
+                  {/* Leg ① */}
+                  <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 6, padding: "8px 10px" }}>
+                    <div style={{ fontSize: 8, color: "var(--ink-3)", letterSpacing: 1, marginBottom: 4 }}>① IDA</div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                      <span style={{ color: "var(--ink)", fontWeight: 600 }}>{ida!.origin} → {ida!.dest}</span>
+                      <span style={{ color: "var(--ink-2)" }}>{fmtDate(rt.outbound_date)}</span>
+                    </div>
+                    <div style={{ color: "var(--ink-3)", marginTop: 3 }}>
+                      {rt.outbound_airline || "—"}
+                      {rt.outbound_duration_minutes ? ` · ${fmtDur(rt.outbound_duration_minutes)}` : ""}
+                      {" · "}{rt.outbound_connections === 0 ? "direto" : `${rt.outbound_connections} parada${rt.outbound_connections > 1 ? "s" : ""}`}
+                    </div>
                   </div>
-                  <div>
-                    <span style={{ color: "var(--ink-3)", marginRight: 6, letterSpacing: 0.5 }}>VOLTA</span>
-                    {fmtDate(rt.return_date)}
-                    {rt.return_airline ? ` · ${rt.return_airline}` : ""}
-                    {rt.return_duration_minutes ? ` · ${fmtDur(rt.return_duration_minutes)}` : ""}
-                    {" · "}{rt.return_connections === 0 ? "direto" : `${rt.return_connections} parada${rt.return_connections > 1 ? "s" : ""}`}
+                  {/* Leg ② */}
+                  <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 6, padding: "8px 10px" }}>
+                    <div style={{ fontSize: 8, color: "var(--ink-3)", letterSpacing: 1, marginBottom: 4 }}>② VOLTA</div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                      <span style={{ color: "var(--ink)", fontWeight: 600 }}>{ida!.dest} → {ida!.origin}</span>
+                      <span style={{ color: "var(--ink-2)" }}>{fmtDate(rt.return_date)}</span>
+                    </div>
+                    <div style={{ color: "var(--ink-3)", marginTop: 3 }}>
+                      {rt.return_airline || "—"}
+                      {rt.return_duration_minutes ? ` · ${fmtDur(rt.return_duration_minutes)}` : ""}
+                      {" · "}{rt.return_connections === 0 ? "direto" : `${rt.return_connections} parada${rt.return_connections > 1 ? "s" : ""}`}
+                    </div>
                   </div>
+                  {/* Total + vs split */}
+                  <div style={{ background: "var(--green-bg)", border: "1px solid var(--green)", borderRadius: 6, padding: "8px 10px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ color: "var(--ink-2)" }}>Total IDA+VOLTA</span>
+                      <span style={{ color: "var(--green)", fontWeight: 700, fontSize: 13 }}>{fmtPrice(rtTotal!)}</span>
+                    </div>
+                    {srtTotal != null && (
+                      <div style={{ marginTop: 4, color: "var(--ink-3)", fontSize: 9 }}>
+                        vs. SPLIT RT{srt?.hub ? ` (via ${srt.hub})` : ""} <span style={{ textDecoration: "line-through" }}>{fmtPrice(srtTotal)}</span>
+                        {srtTotal > rtTotal! && (
+                          <span style={{ color: "var(--green)", marginLeft: 4 }}>
+                            você economiza {fmtPrice(srtTotal - rtTotal!)} ({Math.round((srtTotal - rtTotal!) / srtTotal * 100)}%)
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {/* Historical */}
+                  {rt.hist_obs >= 1 && rt.hist_avg && (
+                    <div style={{ padding: "6px 10px", color: "var(--ink-3)", fontSize: 9, display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ color: rt.deal_pct != null && rt.deal_pct >= 5 ? "var(--green)" : rt.deal_pct != null && rt.deal_pct <= -5 ? "var(--crimson)" : "var(--ink-3)" }}>
+                        {rt.deal_pct != null && rt.deal_pct >= 5
+                          ? `↓ ${Math.round(rt.deal_pct)}% abaixo da média histórica`
+                          : rt.deal_pct != null && rt.deal_pct <= -5
+                          ? `↑ ${Math.round(-rt.deal_pct)}% acima da média histórica`
+                          : "na média histórica"}
+                      </span>
+                      <span>histórico ({rt.hist_obs} busca{rt.hist_obs > 1 ? "s" : ""}) · avg {fmtPrice(rt.hist_avg)}</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
