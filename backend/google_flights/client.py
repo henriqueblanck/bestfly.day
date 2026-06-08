@@ -82,24 +82,21 @@ class GoogleFlightsClient:
         return_date: date,
         max_connections: int = 1,
     ) -> RoundTripOffer | None:
-        # Validate airports exist in fli enum (reuse for code validation only)
-        try:
-            Airport[origin]
-        except KeyError:
-            raise UnknownAirportError(f"código não reconhecido: {origin}")
-        try:
-            Airport[destination]
-        except KeyError:
-            raise UnknownAirportError(f"código não reconhecido: {destination}")
+        # gf_direct uses raw IATA strings — no fli Airport enum needed here.
+        # Basic sanity check only (2-3 uppercase letters).
+        for code, label in [(origin, "origin"), (destination, "destination")]:
+            if not (2 <= len(code) <= 4 and code.isupper() and code.isalpha()):
+                raise UnknownAirportError(f"código inválido: {code}")
 
         from google_flights.gf_direct import search_round_trip as _direct_search
 
+        log.info("gf_direct RT %s↔%s %s/%s", origin, destination, outbound_date, return_date)
         results = await _direct_search(
             origin, destination, outbound_date, return_date,
             max_stops=max_connections, top_n=10,
         )
         if not results:
-            log.warning("gf_direct round-trip returned 0 results %s↔%s %s/%s",
+            log.warning("gf_direct RT 0 resultados %s↔%s %s/%s",
                         origin, destination, outbound_date, return_date)
             return None
 

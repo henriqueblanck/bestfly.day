@@ -226,7 +226,6 @@ async def _run_search(job_id: str, req: SearchInput):
                 return req.return_date_from + timedelta(days=round(ratio * ret_span))
 
             async def _best_dates_for_pair(origin: str, dest: str) -> list[date]:
-                """Use the calendar API to find the cheapest outbound dates in range."""
                 cal = await get_price_calendar(
                     origin, dest,
                     month_start=req.date_from.replace(day=1),
@@ -234,7 +233,7 @@ async def _run_search(job_id: str, req: SearchInput):
                     currency="BRL",
                     trip_length_days=trip_length_days,
                 )
-                # Filter to requested range and sort by price
+                on_log(f"[calendário] {origin}↔{dest}: {len(cal)} datas com preço")
                 in_range = {
                     d: p for d, p in cal.items()
                     if req.date_from.isoformat() <= d <= req.date_to.isoformat()
