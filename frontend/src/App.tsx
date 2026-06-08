@@ -379,6 +379,7 @@ export default function App() {
   const [tripType, setTripType] = useState<"oneway" | "roundtrip">("oneway");
   const [origins, setOrigins] = useState<string[]>([]);
   const [destinations, setDestinations] = useState<string[]>([]);
+  const [returnOrigins, setReturnOrigins] = useState<string[]>([]);  // actual origins for return matrix
   const [activeOrigin, setActiveOrigin] = useState<string | null>(null);
   const [activeRetOrigin, setActiveRetOrigin] = useState<string | null>(null);
   const [leg, setLeg] = useState<"ida" | "volta">("ida");
@@ -425,10 +426,12 @@ export default function App() {
       { kind: "info", text: `${payload.origins.join(", ")} → ${payload.destinations.join(", ")}` },
       { kind: "info", text: `${payload.date_from} → ${payload.date_to}${payload.trip_type === "roundtrip" ? ` | volta: ${payload.return_date_from} → ${payload.return_date_to}` : ""}` },
     ]);
+    const retOris = payload.return_origins?.length ? payload.return_origins : payload.destinations;
     setOrigins(payload.origins);
     setDestinations(payload.destinations);
+    setReturnOrigins(retOris);
     setActiveOrigin(payload.origins[0]);
-    setActiveRetOrigin(payload.destinations[0]);
+    setActiveRetOrigin(retOris[0]);
 
     try {
       const jobId = await startSearch(payload);
@@ -607,26 +610,45 @@ export default function App() {
             {/* Return matrix */}
             {leg === "volta" && returnMatrix && (
               <>
-                {destinations.length > 1 && (
-                  <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-                    {destinations.map((o) => (
-                      <button
-                        key={o}
-                        className={`chip ${activeRetOrigin === o ? "active" : ""}`}
-                        onClick={() => setActiveRetOrigin(o)}
-                        style={{ fontSize: 13, padding: "6px 16px" }}
-                      >
-                        from {o}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <PriceMatrix
-                  matrix={returnMatrix}
-                  origin={activeRetOrigin ?? destinations[0]}
-                  onPin={(leg) => setPinnedVolta(leg)}
-                  pinnedDate={pinnedVolta?.date}
-                />
+                {(() => {
+                  // Only show tabs for origins that have data in the return matrix
+                  const validRetOris = returnOrigins.filter((o) => returnMatrix[o] && Object.keys(returnMatrix[o]).length > 0);
+                  const currentRetOri = (activeRetOrigin && returnMatrix[activeRetOrigin]) ? activeRetOrigin : (validRetOris[0] ?? returnOrigins[0]);
+                  return (
+                    <>
+                      {returnOrigins.length > 1 && (
+                        <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                          {returnOrigins.map((o) => {
+                            const hasData = !!(returnMatrix[o] && Object.keys(returnMatrix[o]).length > 0);
+                            return (
+                              <button
+                                key={o}
+                                className={`chip ${currentRetOri === o ? "active" : ""}`}
+                                onClick={() => setActiveRetOrigin(o)}
+                                style={{ fontSize: 13, padding: "6px 16px", opacity: hasData ? 1 : 0.45 }}
+                                title={hasData ? undefined : "Sem split melhores que o direto"}
+                              >
+                                from {o}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {returnMatrix[currentRetOri] ? (
+                        <PriceMatrix
+                          matrix={returnMatrix}
+                          origin={currentRetOri}
+                          onPin={(leg) => setPinnedVolta(leg)}
+                          pinnedDate={pinnedVolta?.date}
+                        />
+                      ) : (
+                        <p style={{ color: "var(--ink-3)", fontFamily: "var(--mono)", fontSize: 12 }}>
+                          Sem rotas split melhores que o direto para {currentRetOri}.
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
               </>
             )}
 
