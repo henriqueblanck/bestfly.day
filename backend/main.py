@@ -267,17 +267,19 @@ async def _run_search(job_id: str, req: SearchInput):
                     if not isinstance(pair, (tuple, list)) or len(pair) < 2:
                         continue
                     out, ret = pair[0], pair[1]
-                    if out.price is None or ret.price is None:
+                    # fli exposes the full RT price on out.price (total both directions).
+                    # ret.price is the same total — do NOT sum them (would double-count).
+                    if out.price is None:
                         continue
-                    total = float(out.price) + float(ret.price)
+                    total = float(out.price)
                     if total < best_total:
                         best_total = total
                         out_airline = out.legs[0].airline.value if out.legs and out.legs[0].airline else ""
                         ret_airline = ret.legs[0].airline.value if ret.legs and ret.legs[0].airline else ""
                         best = {
                             "total": total,
-                            "outbound": float(out.price),
-                            "return": float(ret.price),
+                            "outbound": total / 2,
+                            "return": total / 2,
                             "out_airline": out_airline,
                             "ret_airline": ret_airline,
                             "out_dur": int(out.duration or 0),
