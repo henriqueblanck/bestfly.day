@@ -258,7 +258,7 @@ async def _run_search(job_id: str, req: SearchInput):
                     ],
                 )
                 # fli returns list[tuple[FlightResult, FlightResult]] for round-trip
-                results = SearchFlights().search(filters, top_n=3, currency="BRL")
+                results = SearchFlights().search(filters, top_n=1, currency="BRL")
                 if not results:
                     return None
                 best: dict | None = None
@@ -303,7 +303,7 @@ async def _run_search(job_id: str, req: SearchInput):
                                 try:
                                     r = await asyncio.wait_for(
                                         asyncio.to_thread(_fli_rt_sync, origin, hub, out_mid, ret_mid),
-                                        timeout=15,
+                                        timeout=20,
                                     )
                                     if r:
                                         on_log(f"  [lh] RT {origin}↔{hub} R${int(r['total'])}")
@@ -344,7 +344,7 @@ async def _run_search(job_id: str, req: SearchInput):
                                 try:
                                     r = await asyncio.wait_for(
                                         asyncio.to_thread(_fli_rt_sync, hub, dest, out_mid, ret_mid),
-                                        timeout=15,
+                                        timeout=20,
                                     )
                                     if r:
                                         lh = ph1_offers[origin][hub]
@@ -377,7 +377,7 @@ async def _run_search(job_id: str, req: SearchInput):
                                 try:
                                     r = await asyncio.wait_for(
                                         asyncio.to_thread(_fli_rt_sync, origin, dest, out_mid, ret_mid),
-                                        timeout=15,
+                                        timeout=20,
                                     )
                                     if r:
                                         await asyncio.to_thread(db.save_rt_price, origin, dest, r["total"])
