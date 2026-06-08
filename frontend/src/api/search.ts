@@ -132,9 +132,11 @@ export async function waitForMatrix(
     if (result.status === "failed") throw new Error(result.error ?? "Search failed");
 
     if (result.status === "complete" && result.matrix) {
-      // Keep polling for up to 90s after complete to capture background round-trip results
       if (completeAt === null) completeAt = Date.now();
-      if (result.roundtrip_direct || Date.now() - completeAt > 90_000) {
+      // Wait until both RT fields are resolved (non-null) or timeout
+      const rtDone = result.roundtrip_direct !== null;
+      const srtDone = result.split_rt !== null;
+      if ((rtDone && srtDone) || Date.now() - completeAt > 120_000) {
         return result;
       }
     }

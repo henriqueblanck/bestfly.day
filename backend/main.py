@@ -667,6 +667,7 @@ async def get_result(job_id: str):
         matrix=job.get("matrix"),
         return_matrix=job.get("return_matrix"),
         roundtrip_direct=job.get("roundtrip_direct"),
+        split_rt=job.get("split_rt"),
         logs=job.get("logs", []),
         error=job.get("error"),
     )
