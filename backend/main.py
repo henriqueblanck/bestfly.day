@@ -44,6 +44,19 @@ HUB_CANDIDATES = [
 
 MAX_SEARCHES = 1000
 
+# Hub candidates specifically for RT probing: routes that tend to have
+# cheap round-trip fares from/to Brazil and to European destinations.
+RT_HUB_CANDIDATES = [
+    # LATAM — best RT fares from Brazil
+    "BOG", "PTY", "MEX", "MIA", "YYZ", "SCL", "LIM",
+    # Europe — transatlantic RT hubs
+    "MAD", "LIS", "FCO", "AMS", "FRA", "LHR", "BCN", "CDG",
+    # Middle East — Emirates / Qatar / Etihad
+    "DOH", "DXB",
+    # Africa
+    "ADD",
+]
+
 app = FastAPI(title="BestFly — Flight Price Matrix")
 
 
@@ -212,48 +225,6 @@ async def _run_search(job_id: str, req: SearchInput):
             # ── Round-trip direct baseline (background) ──
             # Fase 1: GetCalendarGraph → preços por dia do mês (1 chamada/par).
             # Fase 2: expansão two-step apenas para as N datas mais baratas.
-            from google_flights.gf_calendar import get_price_calendar
-
-            rt_client = GoogleFlightsClient()
-            ret_span = (ret_end - req.return_date_from).days
-            trip_length_days = max(1, (ret_end - req.date_to).days or ret_span // 2 or 7)
-
-            def _paired_ret(od: date) -> date:
-                out_span = (req.date_to - req.date_from).days
-                if out_span == 0:
-                    return req.return_date_from + timedelta(days=ret_span // 2)
-                ratio = (od - req.date_from).days / out_span
-                return req.return_date_from + timedelta(days=round(ratio * ret_span))
-
-            async def _best_dates_for_pair(origin: str, dest: str) -> list[date]:
-                cal = await get_price_calendar(
-                    origin, dest,
-                    month_start=req.date_from.replace(day=1),
-                    trip_type="roundtrip",
-                    currency="BRL",
-                    trip_length_days=trip_length_days,
-                )
-                on_log(f"[calendário] {origin}↔{dest}: {len(cal)} datas com preço")
-                in_range = {
-                    d: p for d, p in cal.items()
-                    if req.date_from.isoformat() <= d <= req.date_to.isoformat()
-                }
-                if not in_range:
-                    # Fallback: 5 evenly-spaced dates
-                    span = (req.date_to - req.date_from).days
-                    count = min(5, span + 1)
-                    if count <= 1:
-                        return [req.date_from]
-                    return [
-                        req.date_from + timedelta(days=round(i * span / (count - 1)))
-                        for i in range(count)
-                    ]
-                sorted_dates = sorted(in_range, key=lambda d: in_range[d])
-                top5 = sorted_dates[:5]
-                return [date.fromisoformat(d) for d in top5]
-
-            _rt_sem = asyncio.Semaphore(3)
-
             def _fli_rt_sync(orig: str, dst: str, od, rd) -> dict | None:
                 """Synchronous fli round-trip search — returns processed dict or None."""
                 from fli.models import (
@@ -316,144 +287,166 @@ async def _run_search(job_id: str, req: SearchInput):
                         }
                 return best
 
-            async def _probe_rt(origin: str, dest: str, od, rd) -> tuple | None:
-                async with _rt_sem:
-                    try:
-                        r = await asyncio.wait_for(
-                            asyncio.to_thread(_fli_rt_sync, origin, dest, od, rd),
-                            timeout=25,
-                        )
-                        if r:
-                            await asyncio.to_thread(db.save_rt_price, origin, dest, r["total"])
-                            stats = await asyncio.to_thread(db.get_rt_stats, origin, dest)
-                            deal_pct = round((1 - r["total"] / stats["avg"]) * 100, 1) if stats["avg"] else None
-                            on_log(f"  ✓ roundtrip {origin}↔{dest} {od} R${int(r['total'])}")
-                            return (origin, dest, od.isoformat(), {
-                                "total": r["total"],
-                                "outbound": r["outbound"],
-                                "return": r["return"],
-                                "outbound_airline": r["out_airline"],
-                                "return_airline": r["ret_airline"],
-                                "outbound_duration_minutes": r["out_dur"],
-                                "return_duration_minutes": r["ret_dur"],
-                                "outbound_connections": r["out_stops"],
-                                "return_connections": r["ret_stops"],
-                                "outbound_date": od.isoformat(),
-                                "return_date": rd.isoformat(),
-                                "hist_avg": stats["avg"],
-                                "deal_pct": deal_pct,
-                                "hist_obs": stats["obs"],
-                                "trend": stats["trend"],
-                            })
-                    except asyncio.TimeoutError:
-                        on_log(f"  ✗ roundtrip {origin}↔{dest}: timeout")
-                    except Exception as exc:
-                        on_log(f"  ✗ roundtrip {origin}↔{dest}: {exc}")
-                    return None
-
-            pairs = [(o, d) for o in req.origins for d in req.destinations]
-            on_log(f"[roundtrip] calendário para {len(pairs)} par(es) + expansão top-5…")
-
             async def _run_rt_bg():
                 try:
                     async with asyncio.timeout(120):
-                        # Phase 1: calendar → cheapest dates per pair
-                        date_tasks = await asyncio.gather(*[
-                            _best_dates_for_pair(o, d) for o, d in pairs
-                        ])
-                        combos = [
-                            (o, d, od, _paired_ret(od))
-                            for (o, d), best_dates in zip(pairs, date_tasks)
-                            for od in best_dates
-                        ]
-                        on_log(f"[roundtrip] {len(combos)} combos selecionados pelo calendário")
+                        out_mid = req.date_from + (req.date_to - req.date_from) // 2
+                        ret_mid = req.return_date_from + (ret_end - req.return_date_from) // 2
 
-                        # Phase 2: two-step expansion for selected dates
-                        probe_results = await asyncio.gather(*[_probe_rt(*c) for c in combos])
-                        rt_results: dict[str, dict[str, Any]] = {}
-                        for r in probe_results:
-                            if r is None:
-                                continue
-                            o, d, out_iso, offer_data = r
-                            rt_results.setdefault(o, {}).setdefault(d, {})[out_iso] = offer_data
-                        jobs[job_id]["roundtrip_direct"] = rt_results
+                        # ── Phase 1: RT(origin↔hub) for all RT hub candidates ──
+                        # Concurrency 5 to respect rate limits while staying fast.
+                        _ph1_sem = asyncio.Semaphore(5)
 
-                        # ── Phase 3: split round-trip ──
-                        # RT(origin↔hub) + RT(hub↔dest) per winning hub
-                        # Hub ranking from outbound matrix
-                        hub_counts: dict[str, int] = {}
-                        for orig_data in (jobs[job_id].get("matrix") or {}).values():
-                            for dest_data in orig_data.values():
-                                for cell in dest_data.values():
-                                    h = cell.get("hub")
-                                    if h and h != "DIRECT":
-                                        hub_counts[h] = hub_counts.get(h, 0) + 1
-                        top_hubs = sorted(hub_counts, key=hub_counts.get, reverse=True)[:4]  # type: ignore[arg-type]
-
-                        if top_hubs:
-                            out_mid = req.date_from + (req.date_to - req.date_from) // 2
-                            ret_mid = req.return_date_from + (ret_end - req.return_date_from) // 2
-
-                            _srt_sem = asyncio.Semaphore(3)
-
-                            async def _probe_split_rt(origin: str, dest: str, hub: str) -> tuple | None:
-                                async with _srt_sem:
-                                    try:
-                                        lh, eu = await asyncio.gather(
-                                            asyncio.wait_for(asyncio.to_thread(_fli_rt_sync, origin, hub, out_mid, ret_mid), timeout=25),
-                                            asyncio.wait_for(asyncio.to_thread(_fli_rt_sync, hub, dest, out_mid, ret_mid), timeout=25),
-                                        )
-                                        if lh and eu:
-                                            total = lh["total"] + eu["total"]
-                                            await asyncio.to_thread(db.save_rt_price, origin, dest, total, "BRL", hub)
-                                            stats = await asyncio.to_thread(db.get_rt_stats, origin, dest, hub)
-                                            deal_pct = round((1 - total / stats["avg"]) * 100, 1) if stats["avg"] else None
-                                            on_log(f"  ✓ split-rt {origin}↔{hub}↔{dest} R${int(total)}")
-                                            return (origin, dest, hub, {
-                                                "total": total,
-                                                "lh_total": lh["total"],
-                                                "eu_total": eu["total"],
-                                                "hub": hub,
-                                                "lh_airline": lh["out_airline"],
-                                                "eu_airline": eu["out_airline"],
-                                                "outbound_date": out_mid.isoformat(),
-                                                "return_date": ret_mid.isoformat(),
-                                                "hist_avg": stats["avg"],
-                                                "deal_pct": deal_pct,
-                                                "hist_obs": stats["obs"],
-                                            })
-                                    except asyncio.TimeoutError:
-                                        on_log(f"  ✗ split-rt {origin}↔{hub}↔{dest}: timeout")
-                                    except Exception as exc:
-                                        on_log(f"  ✗ split-rt {origin}↔{hub}↔{dest}: {exc}")
+                        async def _probe_lh(origin: str, hub: str) -> tuple | None:
+                            async with _ph1_sem:
+                                try:
+                                    r = await asyncio.wait_for(
+                                        asyncio.to_thread(_fli_rt_sync, origin, hub, out_mid, ret_mid),
+                                        timeout=25,
+                                    )
+                                    if r:
+                                        on_log(f"  [lh] RT {origin}↔{hub} R${int(r['total'])}")
+                                        return (origin, hub, r)
+                                except asyncio.TimeoutError:
+                                    pass
+                                except Exception as exc:
+                                    on_log(f"  ✗ [lh] {origin}↔{hub}: {exc}")
                                 return None
 
-                            srt_combos = [
-                                (o, d, hub)
-                                for o in req.origins
-                                for d in req.destinations
-                                for hub in top_hubs
-                            ]
-                            on_log(f"[split-rt] {len(srt_combos)} combos via {top_hubs}…")
-                            srt_raw = await asyncio.gather(*[_probe_split_rt(*c) for c in srt_combos])
+                        ph1_combos = [(o, h) for o in req.origins for h in RT_HUB_CANDIDATES]
+                        on_log(f"[split-rt] fase 1 — {len(ph1_combos)} probes RT(ori↔hub)…")
+                        ph1_raw = await asyncio.gather(*[_probe_lh(o, h) for o, h in ph1_combos])
 
-                            split_rt: dict[str, dict[str, Any]] = {}
-                            for r in srt_raw:
-                                if r is None:
-                                    continue
-                                o, d, hub, offer = r
-                                existing = split_rt.get(o, {}).get(d)
-                                if existing is None or offer["total"] < existing["total"]:
-                                    split_rt.setdefault(o, {})[d] = offer
-                            jobs[job_id]["split_rt"] = split_rt
-                        else:
-                            jobs[job_id]["split_rt"] = {}
+                        # ph1_offers[origin][hub] = offer_dict
+                        ph1_offers: dict[str, dict[str, dict]] = {}
+                        for item in ph1_raw:
+                            if item is None:
+                                continue
+                            origin, hub, offer = item
+                            ph1_offers.setdefault(origin, {})[hub] = offer
+
+                        # Top 4 cheapest hubs per origin (by RT total)
+                        top_hubs_by_origin: dict[str, list[str]] = {}
+                        for origin in req.origins:
+                            ranked = sorted(ph1_offers.get(origin, {}).items(), key=lambda x: x[1]["total"])
+                            top = [h for h, _ in ranked[:4]]
+                            top_hubs_by_origin[origin] = top
+                            if top:
+                                on_log("  [lh] top hubs de " + origin + ": " +
+                                       " · ".join(f"{h} R${int(ph1_offers[origin][h]['total'])}" for h in top))
+
+                        # ── Phase 2: RT(hub↔dest) + direct RT(ori↔dest) in parallel ──
+                        _ph2_sem = asyncio.Semaphore(4)
+
+                        async def _probe_eu(origin: str, dest: str, hub: str) -> tuple | None:
+                            async with _ph2_sem:
+                                try:
+                                    r = await asyncio.wait_for(
+                                        asyncio.to_thread(_fli_rt_sync, hub, dest, out_mid, ret_mid),
+                                        timeout=25,
+                                    )
+                                    if r:
+                                        lh = ph1_offers[origin][hub]
+                                        total = lh["total"] + r["total"]
+                                        await asyncio.to_thread(db.save_rt_price, origin, dest, total, "BRL", hub)
+                                        stats = await asyncio.to_thread(db.get_rt_stats, origin, dest, hub)
+                                        deal_pct = round((1 - total / stats["avg"]) * 100, 1) if stats["avg"] else None
+                                        on_log(f"  ✓ split-rt {origin}↔{hub}↔{dest} R${int(total)}")
+                                        return (origin, dest, hub, {
+                                            "total": total,
+                                            "lh_total": lh["total"],
+                                            "eu_total": r["total"],
+                                            "hub": hub,
+                                            "lh_airline": lh["out_airline"],
+                                            "eu_airline": r["out_airline"],
+                                            "outbound_date": out_mid.isoformat(),
+                                            "return_date": ret_mid.isoformat(),
+                                            "hist_avg": stats["avg"],
+                                            "deal_pct": deal_pct,
+                                            "hist_obs": stats["obs"],
+                                        })
+                                except asyncio.TimeoutError:
+                                    on_log(f"  ✗ split-rt {origin}↔{hub}↔{dest}: timeout")
+                                except Exception as exc:
+                                    on_log(f"  ✗ split-rt {origin}↔{hub}↔{dest}: {exc}")
+                                return None
+
+                        async def _probe_direct_rt(origin: str, dest: str) -> tuple | None:
+                            async with _ph2_sem:
+                                try:
+                                    r = await asyncio.wait_for(
+                                        asyncio.to_thread(_fli_rt_sync, origin, dest, out_mid, ret_mid),
+                                        timeout=25,
+                                    )
+                                    if r:
+                                        await asyncio.to_thread(db.save_rt_price, origin, dest, r["total"])
+                                        stats = await asyncio.to_thread(db.get_rt_stats, origin, dest)
+                                        deal_pct = round((1 - r["total"] / stats["avg"]) * 100, 1) if stats["avg"] else None
+                                        on_log(f"  ✓ rt direto {origin}↔{dest} R${int(r['total'])}")
+                                        return (origin, dest, out_mid.isoformat(), {
+                                            "total": r["total"],
+                                            "outbound": r["outbound"],
+                                            "return": r["return"],
+                                            "outbound_airline": r["out_airline"],
+                                            "return_airline": r["ret_airline"],
+                                            "outbound_duration_minutes": r["out_dur"],
+                                            "return_duration_minutes": r["ret_dur"],
+                                            "outbound_connections": r["out_stops"],
+                                            "return_connections": r["ret_stops"],
+                                            "outbound_date": out_mid.isoformat(),
+                                            "return_date": ret_mid.isoformat(),
+                                            "hist_avg": stats["avg"],
+                                            "deal_pct": deal_pct,
+                                            "hist_obs": stats["obs"],
+                                            "trend": stats["trend"],
+                                        })
+                                except asyncio.TimeoutError:
+                                    on_log(f"  ✗ rt direto {origin}↔{dest}: timeout")
+                                except Exception as exc:
+                                    on_log(f"  ✗ rt direto {origin}↔{dest}: {exc}")
+                                return None
+
+                        ph2_combos = [
+                            (o, d, hub)
+                            for o in req.origins
+                            for d in req.destinations
+                            for hub in top_hubs_by_origin.get(o, [])
+                        ]
+                        direct_combos = [(o, d) for o in req.origins for d in req.destinations]
+                        on_log(f"[split-rt] fase 2 — {len(ph2_combos)} split + {len(direct_combos)} direto…")
+
+                        ph2_raw, direct_raw = await asyncio.gather(
+                            asyncio.gather(*[_probe_eu(*c) for c in ph2_combos]),
+                            asyncio.gather(*[_probe_direct_rt(*c) for c in direct_combos]),
+                        )
+
+                        # Best split-RT per (origin, dest)
+                        split_rt: dict[str, dict[str, Any]] = {}
+                        for item in ph2_raw:
+                            if item is None:
+                                continue
+                            o, d, hub, offer = item
+                            existing = split_rt.get(o, {}).get(d)
+                            if existing is None or offer["total"] < existing["total"]:
+                                split_rt.setdefault(o, {})[d] = offer
+                        jobs[job_id]["split_rt"] = split_rt
+
+                        # Direct RT per (origin, dest, date)
+                        rt_direct: dict[str, dict[str, Any]] = {}
+                        for item in direct_raw:
+                            if item is None:
+                                continue
+                            o, d, date_iso, offer = item
+                            rt_direct.setdefault(o, {}).setdefault(d, {})[date_iso] = offer
+                        jobs[job_id]["roundtrip_direct"] = rt_direct
 
                         await asyncio.to_thread(db.save_job, job_id, jobs[job_id])
                 except asyncio.TimeoutError:
-                    on_log("[roundtrip] timeout — preços consolidados indisponíveis")
-                    jobs[job_id]["roundtrip_direct"] = {}
-                    jobs[job_id]["split_rt"] = {}
+                    on_log("[split-rt] timeout — exibindo resultados parciais")
+                    if jobs[job_id].get("roundtrip_direct") is None:
+                        jobs[job_id]["roundtrip_direct"] = {}
+                    if jobs[job_id].get("split_rt") is None:
+                        jobs[job_id]["split_rt"] = {}
                     await asyncio.to_thread(db.save_job, job_id, jobs[job_id])
 
             asyncio.create_task(_run_rt_bg())
