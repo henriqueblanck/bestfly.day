@@ -304,7 +304,7 @@ function HoverTooltip({ state, origin }: { state: TooltipState; origin: string }
       </div>
 
       {/* Historical context */}
-      {entry.hist_avg != null && entry.hist_obs >= 3 && (
+      {entry.hist_avg != null && entry.hist_obs >= 1 && (
         <>
           <div style={{ borderTop: "1px solid var(--line)", marginBottom: 10, marginTop: 10 }} />
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
@@ -457,7 +457,7 @@ function MatrixCell({
       )}
 
       {/* Trend indicator — top-left */}
-      {entry.trend && entry.hist_obs >= 3 && (
+      {entry.trend && entry.hist_obs >= 1 && (
         <div style={{
           position: "absolute",
           top: 4,
@@ -1055,7 +1055,7 @@ function FlightDetailModal({
           )}
 
           {/* Historical price context */}
-          {entry.hist_avg != null && entry.hist_obs >= 3 && (
+          {entry.hist_avg != null && entry.hist_obs >= 1 && (
             <div style={{
               display: "flex", justifyContent: "space-between", alignItems: "center",
               padding: "10px 16px",
