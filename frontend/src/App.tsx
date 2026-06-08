@@ -183,10 +183,17 @@ function TotalBar({
                 </button>
               )}
             </div>
-          ) : (
+          ) : roundtripDirect === null ? (
+            /* null = background task still running */
             <div style={{ flex: 1, minWidth: 110 }}>
               <div style={{ fontSize: 9, color: "var(--ink-3)", marginBottom: 2, letterSpacing: 0.8 }}>IDA+VOLTA ÚNICO</div>
               <div style={{ fontSize: 11, color: "var(--ink-3)", fontStyle: "italic" }}>buscando…</div>
+            </div>
+          ) : (
+            /* {} = task done, no results found */
+            <div style={{ flex: 1, minWidth: 110 }}>
+              <div style={{ fontSize: 9, color: "var(--ink-3)", marginBottom: 2, letterSpacing: 0.8 }}>IDA+VOLTA ÚNICO</div>
+              <div style={{ fontSize: 11, color: "var(--ink-3)" }}>—</div>
             </div>
           )}
         </div>

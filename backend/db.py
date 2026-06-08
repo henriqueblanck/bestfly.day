@@ -144,7 +144,9 @@ def get_cached(origin: str, destination: str, flight_date: date) -> list[dict] |
         ).fetchall()
     if not rows:
         return None
-    return [dict(r) for r in rows]
+    real = [dict(r) for r in rows if r["offer_id"] != "__EMPTY__"]
+    # Sentinel-only hit means "we searched, found nothing" — return [] (not None)
+    return real
 
 
 def save_slices(

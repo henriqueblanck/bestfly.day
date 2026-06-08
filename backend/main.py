@@ -42,7 +42,7 @@ HUB_CANDIDATES = [
     "ICN", "SIN",
 ]
 
-MAX_SEARCHES = 500
+MAX_SEARCHES = 1000
 
 app = FastAPI(title="BestFly — Flight Price Matrix")
 
@@ -110,7 +110,7 @@ class SearchInput(BaseModel):
         probe = origins * C
         direct = origins * dests * total_days
         phase2_per_hub = (origins + dests) * total_days
-        top_k = max(2, min(6, (MAX_SEARCHES - probe - direct) // phase2_per_hub)) if phase2_per_hub > 0 else 2
+        top_k = max(4, min(8, (MAX_SEARCHES - probe - direct) // phase2_per_hub)) if phase2_per_hub > 0 else 4
         estimated = probe + direct + top_k * phase2_per_hub
         if estimated > MAX_SEARCHES:
             raise ValueError(
@@ -162,7 +162,7 @@ async def _run_search(job_id: str, req: SearchInput):
         probe = origins * C
         direct = origins * dests * total_days
         phase2_per_hub = (origins + dests) * total_days
-        top_k = max(2, min(6, (MAX_SEARCHES - probe - direct) // phase2_per_hub)) if phase2_per_hub > 0 else 2
+        top_k = max(4, min(8, (MAX_SEARCHES - probe - direct) // phase2_per_hub)) if phase2_per_hub > 0 else 4
 
         # ── Outbound ──
         outbound = SearchRequest(
@@ -285,27 +285,33 @@ async def _run_search(job_id: str, req: SearchInput):
             on_log(f"[roundtrip] calendário para {len(pairs)} par(es) + expansão top-5…")
 
             async def _run_rt_bg():
-                # Phase 1: one calendar call per pair to pick cheapest dates
-                date_tasks = await asyncio.gather(*[
-                    _best_dates_for_pair(o, d) for o, d in pairs
-                ])
-                combos = [
-                    (o, d, od, _paired_ret(od))
-                    for (o, d), best_dates in zip(pairs, date_tasks)
-                    for od in best_dates
-                ]
-                on_log(f"[roundtrip] {len(combos)} combos selecionados pelo calendário")
+                try:
+                    async with asyncio.timeout(120):
+                        # Phase 1: calendar → cheapest dates per pair
+                        date_tasks = await asyncio.gather(*[
+                            _best_dates_for_pair(o, d) for o, d in pairs
+                        ])
+                        combos = [
+                            (o, d, od, _paired_ret(od))
+                            for (o, d), best_dates in zip(pairs, date_tasks)
+                            for od in best_dates
+                        ]
+                        on_log(f"[roundtrip] {len(combos)} combos selecionados pelo calendário")
 
-                # Phase 2: full two-step expansion for selected dates
-                probe_results = await asyncio.gather(*[_probe_rt(*c) for c in combos])
-                rt_results: dict[str, dict[str, Any]] = {}
-                for r in probe_results:
-                    if r is None:
-                        continue
-                    o, d, out_iso, offer_data = r
-                    rt_results.setdefault(o, {}).setdefault(d, {})[out_iso] = offer_data
-                if rt_results:
-                    jobs[job_id]["roundtrip_direct"] = rt_results
+                        # Phase 2: two-step expansion for selected dates
+                        probe_results = await asyncio.gather(*[_probe_rt(*c) for c in combos])
+                        rt_results: dict[str, dict[str, Any]] = {}
+                        for r in probe_results:
+                            if r is None:
+                                continue
+                            o, d, out_iso, offer_data = r
+                            rt_results.setdefault(o, {}).setdefault(d, {})[out_iso] = offer_data
+                        # {} signals "done, no results" (distinct from null = still running)
+                        jobs[job_id]["roundtrip_direct"] = rt_results
+                        await asyncio.to_thread(db.save_job, job_id, jobs[job_id])
+                except asyncio.TimeoutError:
+                    on_log("[roundtrip] timeout — preço consolidado indisponível")
+                    jobs[job_id]["roundtrip_direct"] = {}
                     await asyncio.to_thread(db.save_job, job_id, jobs[job_id])
 
             asyncio.create_task(_run_rt_bg())

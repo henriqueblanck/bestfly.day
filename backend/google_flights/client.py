@@ -229,4 +229,11 @@ class GoogleFlightsClient:
 
         if last_exc:
             raise last_exc
+        # Cache the empty result so we don't hammer fli during rate-limiting
+        await asyncio.to_thread(
+            db.save_slices, origin, destination, departure_date,
+            [{"price": 0, "currency": "BRL", "airline": "__EMPTY__",
+              "duration_minutes": 0, "connections": 0,
+              "offer_id": "__EMPTY__", "departure_time": ""}],
+        )
         return []
