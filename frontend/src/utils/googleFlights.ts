@@ -59,26 +59,26 @@ export function makeGoogleFlightsUrl(
   returnDate?: string,
   currency = "BRL",
 ): string {
-  const tripType = returnDate ? 2 : 1;
-
-  const body: number[] = [
-    ...fieldVarint(1, 28),
-    ...fieldVarint(2, tripType),
-    ...fieldEmbedded(3, segment(outboundDate, origin, dest)),
-  ];
-
-  if (returnDate) {
-    body.push(...fieldEmbedded(3, segment(returnDate, dest, origin)));
+  // One-way: simple ?q= format confirmed working
+  if (!returnDate) {
+    return `https://www.google.com/travel/flights?q=${origin}+to+${dest}+on+${outboundDate}&curr=${currency}`;
   }
 
-  // Hardcoded trailing flags observed in Google Flights URLs
+  // Round-trip: tfs= protobuf (q= with "returning" doesn't work on Google Flights)
+  const body: number[] = [
+    ...fieldVarint(1, 28),
+    ...fieldVarint(2, 2),
+    ...fieldEmbedded(3, segment(outboundDate, origin, dest)),
+    ...fieldEmbedded(3, segment(returnDate, dest, origin)),
+  ];
+
   body.push(
-    0x40, 0x01,                                                          // field 8  = 1
-    0x48, 0x01,                                                          // field 9  = 1
-    0x70, 0x01,                                                          // field 14 = 1
-    0x82, 0x01, 0x0b,                                                    // field 16, 11 bytes
-    0x08, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01,  // INT64_MAX (any stops)
-    0x98, 0x01, 0x01,                                                    // field 19 = 1
+    0x40, 0x01,
+    0x48, 0x01,
+    0x70, 0x01,
+    0x82, 0x01, 0x0b,
+    0x08, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01,
+    0x98, 0x01, 0x01,
   );
 
   const tfs = btoa(String.fromCharCode(...body))
