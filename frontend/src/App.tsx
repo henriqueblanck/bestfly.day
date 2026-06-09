@@ -611,30 +611,31 @@ export default function App() {
             {leg === "volta" && returnMatrix && (
               <>
                 {(() => {
-                  // Only show tabs for origins that have data in the return matrix
-                  const validRetOris = returnOrigins.filter((o) => returnMatrix[o] && Object.keys(returnMatrix[o]).length > 0);
-                  const currentRetOri = (activeRetOrigin && returnMatrix[activeRetOrigin]) ? activeRetOrigin : (validRetOris[0] ?? returnOrigins[0]);
+                  const hasRetData = (o: string) =>
+                    !!returnMatrix[o] && Object.keys(returnMatrix[o]).length > 0;
+                  const validRetOris = (returnOrigins.length ? returnOrigins : destinations)
+                    .filter(hasRetData);
+                  const fallback = (returnOrigins.length ? returnOrigins : destinations)[0];
+                  const currentRetOri = hasRetData(activeRetOrigin ?? "") ? activeRetOrigin! : (validRetOris[0] ?? fallback);
+                  const tabList = returnOrigins.length ? returnOrigins : destinations;
                   return (
                     <>
-                      {returnOrigins.length > 1 && (
+                      {tabList.length > 1 && (
                         <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-                          {returnOrigins.map((o) => {
-                            const hasData = !!(returnMatrix[o] && Object.keys(returnMatrix[o]).length > 0);
-                            return (
-                              <button
-                                key={o}
-                                className={`chip ${currentRetOri === o ? "active" : ""}`}
-                                onClick={() => setActiveRetOrigin(o)}
-                                style={{ fontSize: 13, padding: "6px 16px", opacity: hasData ? 1 : 0.45 }}
-                                title={hasData ? undefined : "Sem split melhores que o direto"}
-                              >
-                                from {o}
-                              </button>
-                            );
-                          })}
+                          {tabList.map((o) => (
+                            <button
+                              key={o}
+                              className={`chip ${currentRetOri === o ? "active" : ""}`}
+                              onClick={() => setActiveRetOrigin(o)}
+                              style={{ fontSize: 13, padding: "6px 16px", opacity: hasRetData(o) ? 1 : 0.45 }}
+                              title={hasRetData(o) ? undefined : "Sem split melhores que o direto"}
+                            >
+                              from {o}
+                            </button>
+                          ))}
                         </div>
                       )}
-                      {returnMatrix[currentRetOri] ? (
+                      {hasRetData(currentRetOri) ? (
                         <PriceMatrix
                           matrix={returnMatrix}
                           origin={currentRetOri}
@@ -643,7 +644,9 @@ export default function App() {
                         />
                       ) : (
                         <p style={{ color: "var(--ink-3)", fontFamily: "var(--mono)", fontSize: 12 }}>
-                          Sem rotas split melhores que o direto para {currentRetOri}.
+                          {validRetOris.length === 0
+                            ? `Nenhuma rota split melhor que o direto para ${tabList.join(", ")}.`
+                            : `Sem rotas split melhores que o direto para ${currentRetOri}.`}
                         </p>
                       )}
                     </>
