@@ -2,10 +2,10 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
 const CAT_COLOR: Record<string, string> = {
-  monumento: "#00ff88",
-  museu:     "#7ab8ff",
-  bairro:    "#ffd700",
-  parque:    "#90ee90",
+  monumento:   "var(--green)",
+  museu:       "#7ab8ff",
+  bairro:      "var(--amber)",
+  parque:      "#90ee90",
   gastronomia: "#ff9a5c",
 };
 
@@ -17,18 +17,20 @@ interface Place {
 interface Props {
   place: Place;
   minutes: number;
-  dayLabel?: string;
+  dayColor?: string;
+  isDragging?: boolean;
   highlighted?: boolean;
   onMinutesChange: (m: number) => void;
-  onRemove: () => void;
+  onRemove: (() => void) | undefined;
   onHover: (id: string | null) => void;
 }
 
-export function PlaceCard({ place, minutes, dayLabel, highlighted, onMinutesChange, onRemove, onHover }: Props) {
+export function PlaceCard({ place, minutes, dayColor, highlighted, onMinutesChange, onRemove, onHover }: Props) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: place.id });
 
-  const color = CAT_COLOR[place.category] ?? "#888";
+  const catColor = CAT_COLOR[place.category] ?? "var(--ink-3)";
+  const accentColor = dayColor ?? catColor;
   const hrs = Math.floor(minutes / 60);
   const mins = minutes % 60;
   const durLabel = hrs > 0 ? (mins > 0 ? `${hrs}h${mins}m` : `${hrs}h`) : `${mins}m`;
@@ -39,12 +41,12 @@ export function PlaceCard({ place, minutes, dayLabel, highlighted, onMinutesChan
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
-        opacity: isDragging ? 0.4 : 1,
-        background: highlighted ? "rgba(0,255,136,0.07)" : "var(--surface-2, #1a1a1a)",
-        border: `1px solid ${highlighted ? "#00ff88" : "var(--line, #2a2a2a)"}`,
-        borderLeft: `3px solid ${color}`,
-        borderRadius: 6,
-        padding: "8px 10px",
+        opacity: isDragging ? 0.35 : 1,
+        background: highlighted ? "rgba(0,255,136,0.06)" : "var(--surface-2)",
+        border: `1px solid ${highlighted ? "var(--green)" : "var(--line)"}`,
+        borderLeft: `3px solid ${accentColor}`,
+        borderRadius: "var(--r-sm)",
+        padding: "7px 10px",
         cursor: "grab",
         display: "flex",
         alignItems: "center",
@@ -57,58 +59,46 @@ export function PlaceCard({ place, minutes, dayLabel, highlighted, onMinutesChan
       {...attributes}
       {...listeners}
     >
-      {/* Drag handle visual cue */}
-      <span style={{ color: "#444", fontSize: 14, flexShrink: 0, pointerEvents: "none" }}>⠿</span>
+      <span style={{ color: "var(--line-2)", fontSize: 14, flexShrink: 0, pointerEvents: "none" }}>⠿</span>
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink, #eee)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {place.name}
         </div>
-        <div style={{ fontSize: 10, color: "var(--ink-3, #666)", marginTop: 1 }}>
-          <span style={{ color, fontSize: 9, fontFamily: "var(--mono, monospace)", textTransform: "uppercase", letterSpacing: 0.5 }}>
-            {place.category}
-          </span>
-          {dayLabel && (
-            <span style={{ marginLeft: 6, color: "#555" }}>{dayLabel}</span>
-          )}
+        <div style={{ fontSize: 9, color: catColor, fontFamily: "var(--mono)", textTransform: "uppercase", letterSpacing: 0.6, marginTop: 2 }}>
+          {place.category}
         </div>
       </div>
 
-      {/* Duration editor */}
       <div
-        style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}
+        style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}
         onPointerDown={(e) => e.stopPropagation()}
       >
-        <button
-          onClick={() => onMinutesChange(Math.max(15, minutes - 15))}
-          style={btnStyle}
-          title="−15min"
-        >−</button>
-        <span style={{ fontSize: 11, fontFamily: "var(--mono, monospace)", color: "#aaa", minWidth: 34, textAlign: "center" }}>
+        <button onClick={() => onMinutesChange(Math.max(15, minutes - 15))} style={btnStyle} title="−15min">−</button>
+        <span style={{ fontSize: 10, fontFamily: "var(--mono)", color: "var(--ink-2)", minWidth: 32, textAlign: "center" }}>
           {durLabel}
         </span>
-        <button
-          onClick={() => onMinutesChange(minutes + 15)}
-          style={btnStyle}
-          title="+15min"
-        >+</button>
+        <button onClick={() => onMinutesChange(minutes + 15)} style={btnStyle} title="+15min">+</button>
       </div>
 
-      {/* Remove */}
-      <button
-        onClick={onRemove}
-        onPointerDown={(e) => e.stopPropagation()}
-        style={{ ...btnStyle, color: "#555", fontSize: 14, padding: "0 4px" }}
-        title="Remover do roteiro"
-      >×</button>
+      {onRemove ? (
+        <button
+          onClick={onRemove}
+          onPointerDown={(e) => e.stopPropagation()}
+          style={{ ...btnStyle, color: "var(--ink-3)", fontSize: 14, padding: "0 4px", width: "auto" }}
+          title="Mover para sem data"
+        >×</button>
+      ) : (
+        <div style={{ width: 20 }} />
+      )}
     </div>
   );
 }
 
 const btnStyle: React.CSSProperties = {
   background: "transparent",
-  border: "1px solid #333",
-  color: "#888",
+  border: "1px solid var(--line-2)",
+  color: "var(--ink-3)",
   borderRadius: 4,
   width: 20,
   height: 20,
