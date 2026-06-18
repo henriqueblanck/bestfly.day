@@ -25,6 +25,7 @@ interface Props {
   onHover: (id: string | null) => void;
   onMarkerFocus: (id: string) => void;
   onChange: (next: ParisItinerary) => void;
+  onSelect?: (id: string) => void;
 }
 
 function fmtTotal(entries: ParisEntry[]): string {
@@ -52,7 +53,7 @@ function setEntries(itin: ParisItinerary, cid: string, entries: ParisEntry[]): P
   return { ...itin, days: itin.days.map(d => d.id === cid ? { ...d, entries } : d) };
 }
 
-export function Planner({ places, itinerary, hoveredId, onHover, onChange }: Props) {
+export function Planner({ places, itinerary, hoveredId, onHover, onChange, onSelect }: Props) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragFrom, setDragFrom] = useState<string | null>(null);
   const placeMap = Object.fromEntries(places.map(p => [p.id, p]));
@@ -170,6 +171,7 @@ export function Planner({ places, itinerary, hoveredId, onHover, onChange }: Pro
                     onMinutesChange={m => updateMinutes("pool", p.id, m)}
                     onRemove={undefined}
                     onHover={onHover}
+                    onSelect={() => onSelect?.(p.id)}
                   />
                 ) : null;
               })}
@@ -229,6 +231,7 @@ export function Planner({ places, itinerary, hoveredId, onHover, onChange }: Pro
                         onMinutesChange={m => updateMinutes(day.id, p.id, m)}
                         onRemove={() => moveToPool(day.id, p.id)}
                         onHover={onHover}
+                        onSelect={() => onSelect?.(p.id)}
                       />
                     ) : null;
                   })}

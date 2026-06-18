@@ -23,9 +23,10 @@ interface Props {
   onMinutesChange: (m: number) => void;
   onRemove: (() => void) | undefined;
   onHover: (id: string | null) => void;
+  onSelect?: () => void;
 }
 
-export function PlaceCard({ place, minutes, dayColor, highlighted, onMinutesChange, onRemove, onHover }: Props) {
+export function PlaceCard({ place, minutes, dayColor, highlighted, onMinutesChange, onRemove, onHover, onSelect }: Props) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: place.id });
 
@@ -35,7 +36,6 @@ export function PlaceCard({ place, minutes, dayColor, highlighted, onMinutesChan
   const mins = minutes % 60;
   const durLabel = hrs > 0 ? (mins > 0 ? `${hrs}h${mins}m` : `${hrs}h`) : `${mins}m`;
 
-  // Height scales with duration only inside days (onRemove defined = in a day)
   const inDay = Boolean(onRemove);
   const minHeight = inDay ? Math.max(52, 36 + Math.round(minutes / 15) * 10) : 52;
 
@@ -58,10 +58,10 @@ export function PlaceCard({ place, minutes, dayColor, highlighted, onMinutesChan
         userSelect: "none",
         minHeight,
         boxShadow: isDragging ? "0 8px 24px rgba(0,0,0,0.15)" : undefined,
-        position: "relative",
       }}
       onMouseEnter={() => onHover(place.id)}
       onMouseLeave={() => onHover(null)}
+      onClick={() => onSelect?.()}
       {...attributes}
       {...listeners}
     >
@@ -76,10 +76,10 @@ export function PlaceCard({ place, minutes, dayColor, highlighted, onMinutesChan
         </div>
       </div>
 
-      {/* Duration controls — pinned to top-right when in day */}
       <div
         style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0, marginTop: inDay ? 1 : 0 }}
         onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
       >
         <button onClick={() => onMinutesChange(Math.max(15, minutes - 15))} style={btnStyle} title="−15min">−</button>
         <span style={{ fontSize: 10, fontFamily: "var(--mono)", color: "var(--ink-2)", minWidth: 32, textAlign: "center" }}>
@@ -90,26 +90,13 @@ export function PlaceCard({ place, minutes, dayColor, highlighted, onMinutesChan
 
       {onRemove ? (
         <button
-          onClick={onRemove}
           onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); onRemove(); }}
           style={{ ...btnStyle, color: "var(--ink-3)", fontSize: 14, padding: "0 4px", width: "auto", marginTop: inDay ? 1 : 0 }}
           title="Mover para sem data"
         >×</button>
       ) : (
         <div style={{ width: 20 }} />
-      )}
-
-      {/* Duration bar — visual fill on the left when in day */}
-      {inDay && (
-        <div style={{
-          position: "absolute",
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: 3,
-          background: accentColor,
-          borderRadius: "var(--r-sm) 0 0 var(--r-sm)",
-        }} />
       )}
     </div>
   );
