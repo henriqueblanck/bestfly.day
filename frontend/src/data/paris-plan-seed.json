@@ -1,0 +1,31 @@
+{
+  "places": {
+    "eiffel": {"id":"eiffel","name":"Tour Eiffel","cat":"monument","lat":48.8584,"lng":2.2945,"address":"Champ de Mars, 5 Av. Anatole France, 75007","desc":"Treliça de ferro de 1889, símbolo absoluto da cidade. Suba ao 2º andar ao pôr do sol.","duration":120,"ticket":"comprado","price":29.4,"notes":""},
+    "arc": {"id":"arc","name":"Arc de Triomphe","cat":"monument","lat":48.8738,"lng":2.2950,"address":"Place Charles de Gaulle, 75008","desc":"Arco napoleônico no topo dos Champs-Élysées. Terraço com vista das 12 avenidas.","duration":60,"ticket":"pendente","price":16,"notes":""},
+    "sacre": {"id":"sacre","name":"Sacré-Cœur","cat":"monument","lat":48.8867,"lng":2.3431,"address":"35 Rue du Chevalier de la Barre, 75018","desc":"Basílica branca no ponto mais alto de Paris. Entrada gratuita.","duration":60,"ticket":"gratuito","price":null,"notes":""},
+    "pantheon": {"id":"pantheon","name":"Panthéon","cat":"monument","lat":48.8462,"lng":2.3464,"address":"Pl. du Panthéon, 75005","desc":"Mausoléu neoclássico de grandes nomes franceses. Pêndulo de Foucault.","duration":75,"ticket":"pendente","price":11.5,"notes":""},
+    "notre": {"id":"notre","name":"Notre-Dame","cat":"monument","lat":48.8530,"lng":2.3499,"address":"6 Parvis Notre-Dame, 75004","desc":"Catedral gótica na Île de la Cité, reaberta após o restauro.","duration":60,"ticket":"gratuito","price":null,"notes":""},
+    "louvre": {"id":"louvre","name":"Musée du Louvre","cat":"museum","lat":48.8606,"lng":2.3376,"address":"Rue de Rivoli, 75001","desc":"O maior museu de arte do mundo. Reserve horário e foque em 2-3 alas.","duration":180,"ticket":"comprado","price":22,"notes":""},
+    "orsay": {"id":"orsay","name":"Musée d'Orsay","cat":"museum","lat":48.8600,"lng":2.3266,"address":"Esplanade Valéry Giscard d'Estaing, 75007","desc":"Impressionistas numa antiga estação Beaux-Arts. Relógio icônico.","duration":120,"ticket":"pendente","price":16,"notes":""},
+    "pompidou": {"id":"pompidou","name":"Centre Pompidou","cat":"museum","lat":48.8607,"lng":2.3522,"address":"Place Georges-Pompidou, 75004","desc":"Arte moderna num prédio do avesso. Vista do último andar.","duration":120,"ticket":"pendente","price":15,"notes":""},
+    "orangerie": {"id":"orangerie","name":"Musée de l'Orangerie","cat":"museum","lat":48.8638,"lng":2.3226,"address":"Jardin Tuileries, 75001","desc":"As Ninfeias de Monet em salas ovais. Pequeno e sublime.","duration":60,"ticket":"comprado","price":12.5,"notes":""},
+    "rodin": {"id":"rodin","name":"Musée Rodin","cat":"museum","lat":48.8553,"lng":2.3158,"address":"77 Rue de Varenne, 75007","desc":"Esculturas no jardim de uma mansão. O Pensador ao ar livre.","duration":75,"ticket":"pendente","price":14,"notes":""},
+    "marais": {"id":"marais","name":"Le Marais","cat":"hood","lat":48.8575,"lng":2.3592,"address":"75004","desc":"Vielas medievais, boutiques, galerias e o melhor falafel.","duration":90,"ticket":"gratuito","price":null,"notes":""},
+    "montmartre": {"id":"montmartre","name":"Montmartre","cat":"hood","lat":48.8867,"lng":2.3380,"address":"75018","desc":"Vila de artistas no alto. Place du Tertre e escadarias.","duration":120,"ticket":"gratuito","price":null,"notes":""},
+    "germain": {"id":"germain","name":"Saint-Germain-des-Prés","cat":"hood","lat":48.8540,"lng":2.3340,"address":"75006","desc":"Cafés literários, livrarias e galerias da margem esquerda.","duration":75,"ticket":"gratuito","price":null,"notes":""},
+    "canal": {"id":"canal","name":"Canal Saint-Martin","cat":"hood","lat":48.8709,"lng":2.3660,"address":"75010","desc":"Passarelas de ferro e margens para piquenique. Vibe local.","duration":60,"ticket":"gratuito","price":null,"notes":""},
+    "luxembourg": {"id":"luxembourg","name":"Jardin du Luxembourg","cat":"park","lat":48.8462,"lng":2.3372,"address":"75006","desc":"Jardim do palácio do Senado. Cadeiras verdes e barquinhos.","duration":60,"ticket":"gratuito","price":null,"notes":""},
+    "tuileries": {"id":"tuileries","name":"Jardin des Tuileries","cat":"park","lat":48.8634,"lng":2.3275,"address":"75001","desc":"Jardim formal ligando o Louvre à Concorde.","duration":45,"ticket":"gratuito","price":null,"notes":""},
+    "buttes": {"id":"buttes","name":"Parc des Buttes-Chaumont","cat":"park","lat":48.8800,"lng":2.3820,"address":"75019","desc":"Falésias, templo e lago — o parque mais dramático de Paris.","duration":75,"ticket":"gratuito","price":null,"notes":""},
+    "fallafel": {"id":"fallafel","name":"L'As du Fallafel","cat":"food","lat":48.8576,"lng":2.3588,"address":"34 Rue des Rosiers, 75004","desc":"O falafel lendário do Marais. Fila que anda rápido.","duration":45,"ticket":"gratuito","price":null,"notes":""},
+    "pain": {"id":"pain","name":"Du Pain et des Idées","cat":"food","lat":48.8693,"lng":2.3625,"address":"34 Rue Yves Toudic, 75010","desc":"Padaria de culto. Peça o escargot de pistache e o pão das amigas.","duration":30,"ticket":"gratuito","price":null,"notes":""},
+    "flore": {"id":"flore","name":"Café de Flore","cat":"food","lat":48.8542,"lng":2.3324,"address":"172 Bd Saint-Germain, 75006","desc":"Café histórico de Sartre e Beauvoir. Chocolate quente caro e bom.","duration":60,"ticket":"gratuito","price":null,"notes":""},
+    "herme": {"id":"herme","name":"Pierre Hermé","cat":"food","lat":48.8512,"lng":2.3340,"address":"72 Rue Bonaparte, 75006","desc":"Alta macaronaria. O Ispahan (rosa-lichia-framboesa) é obrigatório.","duration":30,"ticket":"gratuito","price":null,"notes":""}
+  },
+  "columns": [
+    {"id":"pool","label":"Sem data","isPool":true,"items":["orsay","rodin","germain","luxembourg","flore","herme","pantheon"]},
+    {"id":"d1","label":"Dia 1","date":"2026-07-03","color":"#C0492F","isPool":false,"items":["louvre","tuileries","orangerie","arc","eiffel"]},
+    {"id":"d2","label":"Dia 2","date":"2026-07-04","color":"#3B6FB5","isPool":false,"items":["notre","marais","fallafel","pompidou"]},
+    {"id":"d3","label":"Dia 3","date":"2026-07-05","color":"#2F6B4F","isPool":false,"items":["montmartre","sacre","pain","canal","buttes"]}
+  ]
+}

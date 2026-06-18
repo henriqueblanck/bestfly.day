@@ -1,21 +1,18 @@
 import { useEffect, useRef } from "react";
 import "leaflet/dist/leaflet.css";
-import "leaflet.markercluster/dist/MarkerCluster.css";
-import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 import L from "leaflet";
-import "leaflet.markercluster";
+import type { ParisPlan } from "../../api/paris";
 
-const CAT_COLOR: Record<string, string> = {
-  monumento:   "#0E7A4B",
-  museu:       "#3B82F6",
-  bairro:      "#C2851A",
-  parque:      "#22A04B",
-  gastronomia: "#E05A1A",
+const CAT_COLORS: Record<string, string> = {
+  monument: "#1F8A52",
+  museum:   "#3B6FB5",
+  hood:     "#E0A03C",
+  park:     "#2F6B4F",
+  food:     "#E8743B",
 };
 
-const DAY_COLORS = ["#0E7A4B", "#3B82F6", "#C2851A", "#E05A1A", "#7C3AED", "#DB2777", "#059669"];
+const DAY_COLORS = ["#C0492F", "#3B6FB5", "#2F6B4F", "#C2851A", "#7A4E8C", "#2F7E7A", "#B5536B", "#4D6A2E"];
 
-// Andrew's monotone chain convex hull
 function convexHull(pts: [number, number][]): [number, number][] {
   if (pts.length <= 2) return pts;
   const sorted = [...pts].sort((a, b) => a[0] !== b[0] ? a[0] - b[0] : a[1] - b[1]);
@@ -34,64 +31,48 @@ function convexHull(pts: [number, number][]): [number, number][] {
   return k.slice(0, -1);
 }
 
-export interface DayPolygon {
-  dayIdx: number;
-  color?: string;
-  points: [number, number][];
+function makeIcon(color: string) {
+  return L.divIcon({
+    className: "",
+    html: `<div style="width:13px;height:13px;border-radius:50%;background:${color};box-shadow:0 0 0 2.5px #FBF8F2,0 0 0 3.5px rgba(20,16,8,.12);"></div>`,
+    iconSize: [13, 13],
+    iconAnchor: [6.5, 6.5],
+  });
 }
 
-interface Place {
-  id: string; name: string; address: string;
-  lat: number; lng: number; category: string; minutes: number;
+function makeDayIcon(num: number, color: string) {
+  return L.divIcon({
+    className: "",
+    html: `<div style="width:26px;height:26px;border-radius:50%;background:${color};color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:monospace;box-shadow:0 0 0 2.5px #FBF8F2,0 0 0 3.5px rgba(20,16,8,.14);">${num}</div>`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
+  });
 }
 
 interface Props {
-  places: Place[];
-  dayAssignment: Record<string, number | undefined>;
+  plan: ParisPlan;
   hoveredId: string | null;
+  focusId: string | null;
   onMarkerClick: (id: string) => void;
-  dayPolygons?: DayPolygon[];
 }
 
-function makeIcon(color: string, size = 11) {
-  return L.divIcon({
-    className: "",
-    html: `<div style="
-      width:${size}px;height:${size}px;border-radius:50%;
-      background:${color};border:2px solid rgba(255,255,255,0.9);
-      box-shadow:0 1px 4px rgba(0,0,0,0.28);
-    "></div>`,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
-  });
-}
-
-function makeDayIcon(dayIdx: number, color: string) {
-  return L.divIcon({
-    className: "",
-    html: `<div style="
-      width:24px;height:24px;border-radius:50%;
-      background:${color};border:2px solid rgba(255,255,255,0.9);
-      color:#fff;font-size:11px;font-weight:700;
-      display:flex;align-items:center;justify-content:center;
-      box-shadow:0 2px 6px rgba(0,0,0,0.22);font-family:monospace;
-    ">${dayIdx + 1}</div>`,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
-  });
-}
-
-export function PlaceMap({ places, dayAssignment, hoveredId, onMarkerClick, dayPolygons = [] }: Props) {
+export function PlaceMap({ plan, hoveredId, focusId, onMarkerClick }: Props) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<Record<string, L.Marker>>({});
-  const containerRef = useRef<HTMLDivElement>(null);
-  const clusterGroupRef = useRef<L.MarkerClusterGroup | null>(null);
   const polygonsRef = useRef<L.Polygon[]>([]);
+
+  // day assignment: placeId → { dayIdx, color }
+  const dayPlaces = new Map<string, { num: number; color: string }>();
+  plan.columns.filter(c => !c.isPool).forEach((col, idx) => {
+    const color = col.color ?? DAY_COLORS[idx % DAY_COLORS.length];
+    col.items.forEach((id, pos) => dayPlaces.set(id, { num: idx + 1, color }));
+  });
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
-    const map = L.map(containerRef.current, { center: [48.8566, 2.3522], zoom: 13 });
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+    const map = L.map(containerRef.current, { center: [48.858, 2.347], zoom: 13 });
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
       attribution: "© OpenStreetMap · © CARTO",
       maxZoom: 19,
     }).addTo(map);
@@ -99,85 +80,75 @@ export function PlaceMap({ places, dayAssignment, hoveredId, onMarkerClick, dayP
     return () => { map.remove(); mapRef.current = null; };
   }, []);
 
-  // Rebuild markers when places or day assignment changes
+  // Rebuild markers
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (clusterGroupRef.current) { map.removeLayer(clusterGroupRef.current); clusterGroupRef.current = null; }
-
-    const group = (L as any).markerClusterGroup({
-      showCoverageOnHover: false,
-      maxClusterRadius: 40,
-      iconCreateFunction: (cluster: any) => L.divIcon({
-        html: `<div style="
-          width:30px;height:30px;border-radius:50%;
-          background:#FBF8F2;border:2px solid #0E7A4B;
-          color:#0E7A4B;font-size:12px;font-weight:700;
-          display:flex;align-items:center;justify-content:center;
-          font-family:monospace;box-shadow:0 2px 8px rgba(0,0,0,0.16);
-        ">${cluster.getChildCount()}</div>`,
-        iconSize: [30, 30], iconAnchor: [15, 15],
-      }),
-    });
-
+    Object.values(markersRef.current).forEach(m => m.remove());
     markersRef.current = {};
-    places.forEach((place) => {
-      const dayIdx = dayAssignment[place.id];
-      const icon = dayIdx !== undefined
-        ? makeDayIcon(dayIdx, DAY_COLORS[dayIdx % DAY_COLORS.length])
-        : makeIcon(CAT_COLOR[place.category] ?? "#888");
+
+    Object.values(plan.places).forEach(place => {
+      const day = dayPlaces.get(place.id);
+      const icon = day
+        ? makeDayIcon(day.num, day.color)
+        : makeIcon(CAT_COLORS[place.cat] ?? "#888");
       const marker = L.marker([place.lat, place.lng], { icon })
         .bindPopup(`<b style="font-family:monospace;font-size:12px;color:#1A1712">${place.name}</b><br><span style="font-size:11px;color:#9A9384">${place.address}</span>`)
         .on("click", () => onMarkerClick(place.id));
-      group.addLayer(marker);
+      marker.addTo(map);
       markersRef.current[place.id] = marker;
     });
+  }, [plan.places, plan.columns]);
 
-    group.addTo(map);
-    clusterGroupRef.current = group;
-  }, [places, dayAssignment]);
-
-  // Draw/update day fence polygons
+  // Rebuild day polygons
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     polygonsRef.current.forEach(p => p.remove());
     polygonsRef.current = [];
 
-    dayPolygons.forEach(dp => {
-      if (dp.points.length < 2) return;
-      const color = dp.color ?? DAY_COLORS[dp.dayIdx % DAY_COLORS.length];
-      const hull = dp.points.length >= 3 ? convexHull(dp.points) : dp.points;
+    plan.columns.filter(c => !c.isPool).forEach((col, idx) => {
+      const color = col.color ?? DAY_COLORS[idx % DAY_COLORS.length];
+      const pts = col.items
+        .map(id => plan.places[id])
+        .filter(Boolean)
+        .map(p => [p.lat, p.lng] as [number, number]);
+      if (pts.length < 2) return;
+      const hull = pts.length >= 3 ? convexHull(pts) : pts;
       const poly = L.polygon(hull, {
-        color,
-        fillColor: color,
-        fillOpacity: 0.08,
-        weight: 2,
-        opacity: 0.55,
-        dashArray: "5 5",
+        color, fillColor: color,
+        fillOpacity: 0.08, weight: 2, opacity: 0.5, dashArray: "5 5",
       }).addTo(map);
       polygonsRef.current.push(poly);
     });
-  }, [dayPolygons]);
+  }, [plan.columns, plan.places]);
+
+  // Fly to focused place when card is clicked
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !focusId) return;
+    const place = plan.places[focusId];
+    if (!place) return;
+    map.flyTo([place.lat, place.lng], Math.max(map.getZoom(), 15), { duration: 0.7 });
+  }, [focusId]);
 
   // Highlight hovered marker
   useEffect(() => {
     Object.entries(markersRef.current).forEach(([id, marker]) => {
       const el = marker.getElement();
-      if (!el) return;
-      const div = el.querySelector("div") as HTMLElement | null;
+      const div = el?.querySelector("div") as HTMLElement | null;
       if (!div) return;
       if (id === hoveredId) {
-        div.style.transform = "scale(1.7)";
+        div.style.transform = "scale(1.6)";
         div.style.zIndex = "9999";
         marker.openPopup();
       } else {
-        div.style.transform = "scale(1)";
+        div.style.transform = "";
         div.style.zIndex = "";
         marker.closePopup();
       }
     });
   }, [hoveredId]);
 
-  return <div ref={containerRef} style={{ width: "100%", height: "100%", background: "var(--surface)" }} />;
+  return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 }
