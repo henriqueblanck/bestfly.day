@@ -2,6 +2,7 @@
 import uuid
 import asyncio
 import logging
+import json
 import time
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -63,6 +64,7 @@ app = FastAPI(title="BestFly — Flight Price Matrix")
 @app.on_event("startup")
 async def startup():
     db.init_db()
+    db.init_paris_db()
     jobs.update(db.load_jobs(_JOB_TTL_SECONDS))
     log.info("Restored %d jobs from SQLite", len(jobs))
 app.add_middleware(
@@ -767,3 +769,20 @@ async def get_result(job_id: str):
         logs=job.get("logs", []),
         error=job.get("error"),
     )
+
+
+# ------------------------------------------------------------------ #
+# Paris itinerary                                                      #
+# ------------------------------------------------------------------ #
+
+@app.get("/api/paris/itinerary")
+async def paris_get():
+    data = await asyncio.to_thread(db.get_paris_itinerary)
+    if data is None:
+        raise HTTPException(status_code=404, detail="No itinerary saved yet")
+    return data
+
+
+@app.put("/api/paris/itinerary", status_code=204)
+async def paris_put(body: dict):
+    await asyncio.to_thread(db.save_paris_itinerary, body)

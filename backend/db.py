@@ -343,3 +343,33 @@ def price_history(
             (origin, destination, flight_date.isoformat(), cutoff),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def init_paris_db() -> None:
+    with _connect() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS paris_itinerary (
+                id         INTEGER PRIMARY KEY DEFAULT 1,
+                data       TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+
+def get_paris_itinerary() -> dict | None:
+    import json
+    with _connect() as conn:
+        row = conn.execute("SELECT data FROM paris_itinerary WHERE id = 1").fetchone()
+        return json.loads(row["data"]) if row else None
+
+
+def save_paris_itinerary(data: dict) -> None:
+    import json
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO paris_itinerary (id, data, updated_at) VALUES (1, ?, ?)"
+            " ON CONFLICT(id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+            (json.dumps(data), now),
+        )
