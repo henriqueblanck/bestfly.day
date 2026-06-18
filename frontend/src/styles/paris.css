@@ -2,23 +2,23 @@
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
 .pp-root {
-  --paper: var(--bg, #F4F0E7);
-  --surface: var(--surface, #FBF8F2);
-  --surface-2: var(--surface-2, #F0EBDF);
-  --line: var(--line, rgba(20,16,8,0.09));
-  --line-2: var(--line-2, rgba(20,16,8,0.16));
-  --line-3: rgba(20,16,8,0.26);
-  --ink: var(--ink, #1A1712);
-  --ink-2: var(--ink-2, #6B6557);
-  --ink-3: var(--ink-3, #9A9384);
-  --green: var(--green, #0E7A4B);
-  --amber: var(--amber, #C2851A);
-  --blue: #3B82F6;
-  --crimson: var(--crimson, #C8364B);
-  --sans: var(--font, 'Space Grotesk', system-ui, sans-serif);
-  --mono: var(--mono, 'IBM Plex Mono', ui-monospace, monospace);
-  --r-sm: 8px;
-  --r-md: 12px;
+  --paper:    #F4F0E7;
+  --surface:  #FBF8F2;
+  --surface-2:#F0EBDF;
+  --line:     rgba(20,16,8,0.09);
+  --line-2:   rgba(20,16,8,0.16);
+  --line-3:   rgba(20,16,8,0.26);
+  --ink:      #1A1712;
+  --ink-2:    #6B6557;
+  --ink-3:    #9A9384;
+  --green:    #0E7A4B;
+  --amber:    #C2851A;
+  --blue:     #3B82F6;
+  --crimson:  #C8364B;
+  --sans:     'Space Grotesk', system-ui, sans-serif;
+  --mono:     'IBM Plex Mono', ui-monospace, monospace;
+  --r-sm:     8px;
+  --r-md:     12px;
 }
 
 .pp-root {
