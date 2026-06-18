@@ -20,9 +20,10 @@ interface Props {
   selectedId: string | null;
   onClose: () => void;
   onChange: (plan: ParisPlan) => void;
+  onDelete: (id: string) => void;
 }
 
-export function PlaceDrawer({ plan, selectedId, onClose, onChange }: Props) {
+export function PlaceDrawer({ plan, selectedId, onClose, onChange, onDelete }: Props) {
   const place = selectedId ? plan.places[selectedId] : null;
   const open = Boolean(place);
 
@@ -173,6 +174,34 @@ export function PlaceDrawer({ plan, selectedId, onClose, onChange }: Props) {
                   <a href={gmapsUrl} target="_blank" rel="noopener noreferrer" className="pp-dw-maps">
                     ↗ Google Maps
                   </a>
+
+                  {currentCol?.isPool && (
+                    <button
+                      onClick={() => { onDelete(place.id); onClose(); }}
+                      style={{
+                        marginTop: 16,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 7,
+                        background: "transparent",
+                        border: "1px solid var(--line-2)",
+                        borderRadius: "var(--r-sm)",
+                        color: "var(--crimson)",
+                        fontFamily: "var(--mono)",
+                        fontSize: 12,
+                        padding: "8px 12px",
+                        cursor: "pointer",
+                        transition: "all .12s",
+                        width: "100%",
+                        justifyContent: "center",
+                      }}
+                      onMouseOver={e => { (e.currentTarget as HTMLElement).style.background = "#F3DCD6"; (e.currentTarget as HTMLElement).style.borderColor = "var(--crimson)"; }}
+                      onMouseOut={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.borderColor = "var(--line-2)"; }}
+                    >
+                      × deletar local
+                    </button>
+                  )}
+
                 </div>
               </div>
             </div>

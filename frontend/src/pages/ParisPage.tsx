@@ -75,6 +75,15 @@ export function ParisPage() {
     finally { setGeocoding(false); }
   }
 
+  function deletePlace(id: string) {
+    if (!plan) return;
+    const { [id]: _, ...remainingPlaces } = plan.places;
+    handleChange({
+      places: remainingPlaces,
+      columns: plan.columns.map(c => ({ ...c, items: c.items.filter(i => i !== id) })),
+    });
+  }
+
   function loadJson(file: File) {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -174,6 +183,7 @@ export function ParisPage() {
           selectedId={selectedId}
           onClose={() => setSelectedId(null)}
           onChange={handleChange}
+          onDelete={deletePlace}
         />
 
         {/* Toolbar */}
