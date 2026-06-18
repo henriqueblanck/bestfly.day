@@ -297,7 +297,7 @@ function DroppableZone({ id, isEmpty, accentColor, children }: {
         gap: 6,
         padding: "4px 0",
         borderRadius: "var(--r-sm)",
-        background: isOver ? `rgba(0,255,136,0.04)` : "transparent",
+        background: isOver ? "var(--green-bg)" : "transparent",
         border: isOver ? `1px solid var(--green)` : isEmpty ? `1px dashed var(--line)` : "1px solid transparent",
         transition: "background 0.12s, border-color 0.12s",
       }}

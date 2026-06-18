@@ -28,6 +28,12 @@ export function ParisPage() {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    const prev = document.documentElement.dataset.theme;
+    document.documentElement.dataset.theme = "cream";
+    return () => { document.documentElement.dataset.theme = prev ?? "dark"; };
+  }, []);
+
+  useEffect(() => {
     loadItinerary()
       .then(setItinerary)
       .catch(() => setItinerary(makeDefault()));

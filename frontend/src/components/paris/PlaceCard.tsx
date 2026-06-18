@@ -42,7 +42,7 @@ export function PlaceCard({ place, minutes, dayColor, highlighted, onMinutesChan
         transform: CSS.Transform.toString(transform),
         transition,
         opacity: isDragging ? 0.35 : 1,
-        background: highlighted ? "rgba(0,255,136,0.06)" : "var(--surface-2)",
+        background: highlighted ? "var(--green-bg)" : "var(--surface-2)",
         border: `1px solid ${highlighted ? "var(--green)" : "var(--line)"}`,
         borderLeft: `3px solid ${accentColor}`,
         borderRadius: "var(--r-sm)",
