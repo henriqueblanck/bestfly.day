@@ -75,6 +75,16 @@ export function ParisPage() {
     finally { setGeocoding(false); }
   }
 
+  function resetPlan() {
+    if (!confirm("Apagar todos os locais e dias? Não tem como desfazer.")) return;
+    const empty: ParisPlan = {
+      places: {},
+      columns: [{ id: "pool", label: "Sem data", isPool: true, items: [] }],
+    };
+    handleChange(empty);
+    setSelectedId(null);
+  }
+
   function deletePlace(id: string) {
     if (!plan) return;
     const { [id]: _, ...remainingPlaces } = plan.places;
@@ -197,7 +207,7 @@ export function ParisPage() {
               </label>
               <button className="pp-tbtn" onClick={() => setShowJsonModal(v => !v)}>ver modelo</button>
               <div className="pp-toolbar-spacer" />
-              <span className="pp-toolbar-hint">clique num local para detalhes</span>
+              <button className="pp-tbtn" onClick={resetPlan} style={{ color: "var(--crimson)", borderColor: "var(--line-2)" }}>limpar tudo</button>
             </>
           ) : (
             <div className="pp-add-form">
