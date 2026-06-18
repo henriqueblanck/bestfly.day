@@ -1,9 +1,21 @@
+export type TicketStatus = "free" | "pending" | "bought";
+
 export interface PlaceData {
   id: string; name: string; address: string;
   lat: number; lng: number; category: string; minutes: number;
+  description?: string;
 }
-export interface ParisEntry { placeId: string; minutes: number }
+
+export interface ParisEntry {
+  placeId: string;
+  minutes: number;
+  notes?: string;
+  ticketStatus?: TicketStatus;
+  ticketPrice?: number;
+}
+
 export interface ParisDay { id: string; label: string; date: string; entries: ParisEntry[] }
+
 export interface ParisItinerary {
   pool: ParisEntry[];
   days: ParisDay[];

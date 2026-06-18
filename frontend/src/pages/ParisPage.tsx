@@ -11,7 +11,7 @@ const DAY_COLORS = ["#0E7A4B", "#3B82F6", "#C2851A", "#E05A1A", "#7C3AED", "#DB2
 const CATEGORIES = ["monumento", "museu", "bairro", "parque", "gastronomia", "outro"];
 
 const JSON_MODEL = JSON.stringify([
-  { id: "unico-id", name: "Nome do Local", address: "Rua, Paris, França", lat: 48.8584, lng: 2.2945, category: "monumento", minutes: 90 }
+  { id: "unico-id", name: "Nome do Local", address: "Rua, Paris, França", lat: 48.8584, lng: 2.2945, category: "monumento", minutes: 90, description: "Descrição opcional do local" }
 ], null, 2);
 
 function makeDefault(): ParisItinerary {
@@ -107,12 +107,12 @@ export function ParisPage() {
     handleChange(next);
   }
 
-  function updatePlaceMinutes(placeId: string, minutes: number) {
+  function updateEntryField(placeId: string, fields: Partial<ParisEntry>) {
     if (!itinerary) return;
     const cid = findContainer(itinerary, placeId);
     if (!cid) return;
     handleChange(setEntries(itinerary, cid, getEntries(itinerary, cid).map(e =>
-      e.placeId === placeId ? { ...e, minutes } : e
+      e.placeId === placeId ? { ...e, ...fields } : e
     )));
   }
 
@@ -164,6 +164,9 @@ export function ParisPage() {
 
   const scheduled = itinerary.days.reduce((s, d) => s + d.entries.length, 0);
   const selectedPlace = selectedId ? placeMap[selectedId] : null;
+  const selectedEntry = selectedId
+    ? (itinerary.pool.find(e => e.placeId === selectedId) ?? itinerary.days.flatMap(d => d.entries).find(e => e.placeId === selectedId) ?? null)
+    : null;
   const newMinLabel = newMin >= 60 ? `${Math.floor(newMin / 60)}h${newMin % 60 ? `${newMin % 60}m` : ""}` : `${newMin}m`;
 
   return (
@@ -209,13 +212,14 @@ export function ParisPage() {
         <div style={{ flex: 1, borderLeft: "1px solid var(--line)", display: "flex", flexDirection: "column", minHeight: 0 }}>
 
           {/* Place detail panel — appears when a place is selected */}
-          {selectedPlace && (
+          {selectedPlace && selectedEntry && (
             <PlaceDetail
               place={selectedPlace}
+              entry={selectedEntry}
               itinerary={itinerary}
               onClose={() => setSelectedId(null)}
               onMoveTo={(cid) => movePlaceTo(selectedPlace.id, cid)}
-              onMinutesChange={(m) => updatePlaceMinutes(selectedPlace.id, m)}
+              onEntryChange={(fields) => updateEntryField(selectedPlace.id, fields)}
             />
           )}
 
