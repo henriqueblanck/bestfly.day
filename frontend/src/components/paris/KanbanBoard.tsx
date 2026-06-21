@@ -220,6 +220,24 @@ export function KanbanBoard({ plan, onChange, selectedId, onSelect, hoveredId, o
     });
   }
 
+  const [editingColId, setEditingColId] = useState<string | null>(null);
+  const [editingLabel, setEditingLabel] = useState("");
+  const labelInputRef = useRef<HTMLInputElement | null>(null);
+
+  function startEditLabel(col: PColumn) {
+    setEditingColId(col.id);
+    setEditingLabel(col.label);
+    setTimeout(() => labelInputRef.current?.select(), 0);
+  }
+
+  function commitLabel(colId: string) {
+    const label = editingLabel.trim();
+    if (label) {
+      onChange({ ...plan, columns: plan.columns.map(c => c.id === colId ? { ...c, label } : c) });
+    }
+    setEditingColId(null);
+  }
+
   return (
     <div className="pp-board">
       {plan.columns.map((col) => {
@@ -241,7 +259,28 @@ export function KanbanBoard({ plan, onChange, selectedId, onSelect, hoveredId, o
                   : (
                     <>
                       <div className="pp-col-swatch" />
-                      <span className="pp-col-label">{col.label}</span>
+                      {editingColId === col.id ? (
+                        <input
+                          ref={labelInputRef}
+                          className="pp-col-label-input"
+                          value={editingLabel}
+                          onChange={e => setEditingLabel(e.target.value)}
+                          onBlur={() => commitLabel(col.id)}
+                          onKeyDown={e => {
+                            if (e.key === "Enter") commitLabel(col.id);
+                            if (e.key === "Escape") setEditingColId(null);
+                          }}
+                        />
+                      ) : (
+                        <span
+                          className="pp-col-label"
+                          title="Clique para renomear"
+                          onClick={() => startEditLabel(col)}
+                          style={{ cursor: "text" }}
+                        >
+                          {col.label}
+                        </span>
+                      )}
                       <button className="pp-col-x" onClick={() => removeDay(col.id)}>×</button>
                     </>
                   )
