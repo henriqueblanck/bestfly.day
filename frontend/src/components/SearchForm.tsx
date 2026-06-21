@@ -13,10 +13,14 @@ const TOP_K = 4;
 const MAX_COMBOS = 500;
 const LS_KEY = "bestfly:last_search";
 
+function localIso(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function todayPlus(n: number): string {
   const d = new Date();
   d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
+  return localIso(d);
 }
 
 function isFutureDate(iso: string): boolean {
@@ -252,11 +256,12 @@ export function SearchForm({ onSubmit, loading }: Props) {
 /* 10-day date strip */
 function DateStrip({ from, to, onChange }: { from: string; to: string; onChange: (f: string, t: string) => void }) {
   const days: string[] = [];
-  const base = new Date(from || new Date());
+  // Parse as local noon to avoid UTC midnight crossing TZ offset bugs
+  const base = new Date((from || localIso(new Date())) + "T12:00:00");
   for (let i = 0; i < DATE_RANGE_DAYS; i++) {
     const d = new Date(base);
     d.setDate(base.getDate() + i);
-    days.push(d.toISOString().slice(0, 10));
+    days.push(localIso(d));
   }
 
   return (

@@ -1,6 +1,27 @@
-import { useState, useMemo, useCallback, useRef } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import type { Matrix, MatrixEntry } from "../api/search";
 import { makeGoogleFlightsUrl } from "../utils/googleFlights";
+
+// ── Pexels image cache ────────────────────────────────────────────────────────
+const PEXELS_KEY = "Wt96SoNgVA9bTKDX78tq10oQcOKmTKjNSMcJweThmD0YPMji68xDmiGi";
+const imageCache = new Map<string, string[]>();
+
+async function fetchCityImages(city: string): Promise<string[]> {
+  if (imageCache.has(city)) return imageCache.get(city)!;
+  try {
+    const res = await fetch(
+      `https://api.pexels.com/v1/search?query=${encodeURIComponent(city + " city travel")}&per_page=3&orientation=landscape`,
+      { headers: { Authorization: PEXELS_KEY } }
+    );
+    const data = await res.json();
+    const urls: string[] = (data.photos ?? []).map((p: { src: { medium: string } }) => p.src.medium);
+    imageCache.set(city, urls);
+    return urls;
+  } catch {
+    imageCache.set(city, []);
+    return [];
+  }
+}
 
 // ── City name lookup ──────────────────────────────────────────────────────────
 const CITY_NAMES: Record<string, string> = {
@@ -247,18 +268,25 @@ function HoverTooltip({ state, origin }: { state: TooltipState; origin: string }
   const hubCity = cityName(hub);
   const destCity = cityName(dest);
 
+  const [images, setImages] = useState<string[]>([]);
+
+  useEffect(() => {
+    setImages([]);
+    fetchCityImages(destCity).then(setImages);
+  }, [destCity]);
+
   return (
     <div
       style={{
         position: "fixed",
         left: x + 16,
         top: y + 16,
-        width: 260,
+        width: 280,
         zIndex: 2000,
         background: "var(--surface-2)",
         border: "1px solid var(--green)",
         borderRadius: "var(--r-md)",
-        padding: "14px 16px",
+        overflow: "hidden",
         fontFamily: "var(--mono)",
         fontSize: 12,
         boxShadow: "0 8px 40px rgba(0,0,0,0.7)",
@@ -266,6 +294,38 @@ function HoverTooltip({ state, origin }: { state: TooltipState; origin: string }
         animation: "fade-in 0.12s ease",
       }}
     >
+      {/* City images strip */}
+      {images.length > 0 ? (
+        <div style={{ display: "flex", height: 90, gap: 1 }}>
+          {images.map((url, i) => (
+            <div
+              key={i}
+              style={{
+                flex: 1,
+                backgroundImage: `url(${url})`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+              }}
+            />
+          ))}
+        </div>
+      ) : (
+        <div style={{
+          height: 90,
+          background: "linear-gradient(135deg, rgba(0,255,136,0.08) 0%, rgba(0,0,0,0) 100%)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 20,
+          opacity: 0.3,
+        }}>
+          ✈
+        </div>
+      )}
+
+      {/* Content below images */}
+      <div style={{ padding: "12px 14px" }}>
+
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10, alignItems: "flex-start" }}>
         <span style={{ color: "var(--ink)", fontWeight: 600, fontSize: 13 }}>
@@ -360,6 +420,8 @@ function HoverTooltip({ state, origin }: { state: TooltipState; origin: string }
       <div style={{ color: "var(--ink-3)", fontSize: 10, textAlign: "center", marginTop: 8 }}>
         click → ver detalhes e reservar
       </div>
+
+      </div>{/* end content */}
     </div>
   );
 }
