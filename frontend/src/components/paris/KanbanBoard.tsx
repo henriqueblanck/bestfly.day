@@ -1,5 +1,26 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { ParisPlan, PColumn } from "../../api/paris";
+
+// ── Pexels image cache (place name → urls) ────────────────────────────────────
+const PEXELS_KEY = "Wt96SoNgVA9bTKDX78tq10oQcOKmTKjNSMcJweThmD0YPMji68xDmiGi";
+const placeImageCache = new Map<string, string[]>();
+
+async function fetchPlaceImages(name: string): Promise<string[]> {
+  if (placeImageCache.has(name)) return placeImageCache.get(name)!;
+  try {
+    const res = await fetch(
+      `https://api.pexels.com/v1/search?query=${encodeURIComponent(name + " Paris")}&per_page=3&orientation=landscape`,
+      { headers: { Authorization: PEXELS_KEY } }
+    );
+    const data = await res.json();
+    const urls: string[] = (data.photos ?? []).map((p: { src: { medium: string } }) => p.src.medium);
+    placeImageCache.set(name, urls);
+    return urls;
+  } catch {
+    placeImageCache.set(name, []);
+    return [];
+  }
+}
 
 const CAT_COLORS: Record<string, string> = {
   monument: "#1F8A52",
@@ -70,16 +91,23 @@ export function KanbanBoard({ plan, onChange, selectedId, onSelect, hoveredId, o
   }
 
   function addDay() {
-    const dayCount = plan.columns.filter(c => !c.isPool).length;
+    const dayCols = plan.columns.filter(c => !c.isPool);
+    // Find next available number, skipping gaps left by deleted days
+    const used = new Set(
+      dayCols.map(c => { const m = c.label.match(/^Dia (\d+)$/); return m ? parseInt(m[1]) : null; })
+             .filter((n): n is number => n !== null)
+    );
+    let n = 1;
+    while (used.has(n)) n++;
     onChange({
       ...plan,
       columns: [...plan.columns, {
         id: `d${Date.now()}`,
-        label: `Dia ${dayCount + 1}`,
+        label: `Dia ${n}`,
         isPool: false,
         items: [],
         date: "",
-        color: DAY_COLORS[dayCount % DAY_COLORS.length],
+        color: DAY_COLORS[dayCols.length % DAY_COLORS.length],
       }],
     });
   }
@@ -459,6 +487,14 @@ interface PlaceCardProps {
 }
 
 function PlaceCard({ place, catColor, selected, hovered, isDragging, inDay, onDragStart, onDragEnd, onClick, onHover, onDurationChange, onRemove }: PlaceCardProps) {
+  const [images, setImages] = useState<string[]>([]);
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    if (!hovered) { setImages([]); return; }
+    fetchPlaceImages(place.name).then(setImages);
+  }, [hovered, place.name]);
+
   return (
     <div
       className={`pp-card${selected ? " sel" : ""}${isDragging ? " dragging" : ""}${hovered ? " hover" : ""}`}
@@ -467,9 +503,37 @@ function PlaceCard({ place, catColor, selected, hovered, isDragging, inDay, onDr
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onClick={onClick}
-      onMouseEnter={() => onHover(place.id)}
-      onMouseLeave={() => onHover(null)}
+      onMouseEnter={(e) => { onHover(place.id); setTooltipPos({ x: e.clientX, y: e.clientY }); }}
+      onMouseMove={(e) => setTooltipPos({ x: e.clientX, y: e.clientY })}
+      onMouseLeave={() => { onHover(null); setTooltipPos(null); }}
     >
+      {/* Image tooltip */}
+      {hovered && tooltipPos && images.length > 0 && (
+        <div style={{
+          position: "fixed",
+          left: tooltipPos.x + 14,
+          top: tooltipPos.y - 90,
+          width: 240,
+          zIndex: 9000,
+          borderRadius: 10,
+          overflow: "hidden",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.45)",
+          pointerEvents: "none",
+          display: "flex",
+          gap: 1,
+          height: 80,
+        }}>
+          {images.map((url, i) => (
+            <div key={i} style={{
+              flex: 1,
+              backgroundImage: `url(${url})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }} />
+          ))}
+        </div>
+      )}
+
       <div>
         <div className="pp-card-name">{place.name}</div>
         <div className="pp-card-cat">
