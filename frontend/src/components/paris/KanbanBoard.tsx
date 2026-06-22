@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import type { ParisPlan, PColumn } from "../../api/paris";
+import { fetchWalkRoute, haversine, fmtWalk, type RouteLeg } from "../../utils/routing";
 
 // ── Pexels image cache (place name → urls) ────────────────────────────────────
 const PEXELS_KEY = "Wt96SoNgVA9bTKDX78tq10oQcOKmTKjNSMcJweThmD0YPMji68xDmiGi";
@@ -76,6 +77,8 @@ interface DropState { colId: string; idx: number }
 export function KanbanBoard({ plan, onChange, selectedId, onSelect, hoveredId, onHover }: Props) {
   const [drag, setDrag] = useState<DragState | null>(null);
   const [drop, setDrop] = useState<DropState | null>(null);
+  // walkLegs[colId] = array of legs between consecutive stops
+  const [walkLegs, setWalkLegs] = useState<Record<string, (RouteLeg & { approx?: boolean })[]>>({});
   const [openCats, setOpenCats] = useState<Set<string>>(
     () => new Set(CAT_ORDER)
   );
@@ -89,6 +92,32 @@ export function KanbanBoard({ plan, onChange, selectedId, onSelect, hoveredId, o
       return next;
     });
   }
+
+  // Fetch walking routes for all day columns (debounced 600ms)
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      const next: Record<string, (RouteLeg & { approx?: boolean })[]> = {};
+      for (const col of plan.columns.filter(c => !c.isPool)) {
+        const coords: [number, number][] = col.items
+          .map(id => plan.places[id])
+          .filter(Boolean)
+          .map(p => [p.lat, p.lng]);
+        if (coords.length < 2) { next[col.id] = []; continue; }
+        const result = await fetchWalkRoute(coords);
+        if (result) {
+          next[col.id] = result.legs;
+        } else {
+          // Fallback: haversine between each pair
+          next[col.id] = coords.slice(0, -1).map((c, i) => ({
+            ...haversine(c, coords[i + 1]),
+            approx: true,
+          }));
+        }
+      }
+      setWalkLegs(next);
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [plan.columns, plan.places]);
 
   function addDay() {
     const dayCols = plan.columns.filter(c => !c.isPool);
@@ -333,6 +362,7 @@ export function KanbanBoard({ plan, onChange, selectedId, onSelect, hoveredId, o
                     drop={drop}
                     selectedId={selectedId}
                     hoveredId={hoveredId}
+                    walkLegs={walkLegs[col.id] ?? []}
                     onSelect={onSelect}
                     onHover={onHover}
                     onDragStart={handleDragStart}
@@ -458,6 +488,7 @@ interface DayItemsProps {
   drop: DropState | null;
   selectedId: string | null;
   hoveredId: string | null;
+  walkLegs: (RouteLeg & { approx?: boolean })[];
   onSelect: (id: string | null) => void;
   onHover: (id: string | null) => void;
   onDragStart: (e: React.DragEvent, id: string, colId: string) => void;
@@ -466,7 +497,7 @@ interface DayItemsProps {
   onMoveToPool: (id: string) => void;
 }
 
-function DayItems({ plan, col, drag, drop, selectedId, hoveredId, onSelect, onHover, onDragStart, onDragEnd, onDurationChange, onMoveToPool }: DayItemsProps) {
+function DayItems({ plan, col, drag, drop, selectedId, hoveredId, walkLegs, onSelect, onHover, onDragStart, onDragEnd, onDurationChange, onMoveToPool }: DayItemsProps) {
   const dropHere = drop?.colId === col.id;
 
   if (col.items.length === 0 && !dropHere) {
@@ -479,6 +510,7 @@ function DayItems({ plan, col, drag, drop, selectedId, hoveredId, onSelect, onHo
         const place = plan.places[id];
         if (!place) return null;
         const catColor = CAT_COLORS[place.cat] ?? "#888";
+        const leg = walkLegs[itemIdx]; // leg between card[itemIdx] and card[itemIdx+1]
         return (
           <div key={id}>
             {dropHere && drop!.idx === itemIdx && drag?.id !== id && (
@@ -498,6 +530,23 @@ function DayItems({ plan, col, drag, drop, selectedId, hoveredId, onSelect, onHo
               onDurationChange={m => onDurationChange(id, m)}
               onRemove={() => onMoveToPool(id)}
             />
+            {/* Walk connector to next stop */}
+            {leg && itemIdx < col.items.length - 1 && (
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "3px 8px 3px 14px",
+                fontSize: 10,
+                fontFamily: "var(--mono)",
+                color: "var(--ink-3)",
+                opacity: 0.8,
+              }}>
+                <span style={{ opacity: 0.5, fontSize: 9 }}>↓</span>
+                <span>{leg.approx ? "~" : ""}{fmtWalk(leg.distance, leg.duration)}</span>
+                <span style={{ opacity: 0.35, fontSize: 8 }}>a pé</span>
+              </div>
+            )}
           </div>
         );
       })}

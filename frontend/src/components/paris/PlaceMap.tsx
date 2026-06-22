@@ -2,6 +2,9 @@ import { useEffect, useRef } from "react";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import type { ParisPlan } from "../../api/paris";
+import { fetchWalkRoute, haversine } from "../../utils/routing";
+
+const DAY_COLORS = ["#C0492F", "#3B6FB5", "#2F6B4F", "#C2851A", "#7A4E8C", "#2F7E7A", "#B5536B", "#4D6A2E"];
 
 const CAT_COLORS: Record<string, string> = {
   monument: "#1F8A52",
@@ -10,8 +13,6 @@ const CAT_COLORS: Record<string, string> = {
   park:     "#2F6B4F",
   food:     "#E8743B",
 };
-
-const DAY_COLORS = ["#C0492F", "#3B6FB5", "#2F6B4F", "#C2851A", "#7A4E8C", "#2F7E7A", "#B5536B", "#4D6A2E"];
 
 function convexHull(pts: [number, number][]): [number, number][] {
   if (pts.length <= 2) return pts;
@@ -31,21 +32,23 @@ function convexHull(pts: [number, number][]): [number, number][] {
   return k.slice(0, -1);
 }
 
-function makeIcon(color: string) {
+// Pin with stop order number inside, colored by day
+function makeStopIcon(num: number, color: string) {
+  return L.divIcon({
+    className: "",
+    html: `<div style="width:26px;height:26px;border-radius:50%;background:${color};color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:monospace;box-shadow:0 0 0 2.5px #FBF8F2,0 0 0 3.5px rgba(20,16,8,.14);">${num}</div>`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
+  });
+}
+
+// Plain dot for "Sem data" places
+function makeCatIcon(color: string) {
   return L.divIcon({
     className: "",
     html: `<div style="width:13px;height:13px;border-radius:50%;background:${color};box-shadow:0 0 0 2.5px #FBF8F2,0 0 0 3.5px rgba(20,16,8,.12);"></div>`,
     iconSize: [13, 13],
     iconAnchor: [6.5, 6.5],
-  });
-}
-
-function makeDayIcon(num: number, color: string) {
-  return L.divIcon({
-    className: "",
-    html: `<div style="width:26px;height:26px;border-radius:50%;background:${color};color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:monospace;box-shadow:0 0 0 2.5px #FBF8F2,0 0 0 3.5px rgba(20,16,8,.14);">${num}</div>`,
-    iconSize: [26, 26],
-    iconAnchor: [13, 13],
   });
 }
 
@@ -61,14 +64,16 @@ export function PlaceMap({ plan, hoveredId, focusId, onMarkerClick }: Props) {
   const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<Record<string, L.Marker>>({});
   const polygonsRef = useRef<L.Polygon[]>([]);
+  const polylinesRef = useRef<L.Polyline[]>([]);
 
-  // day assignment: placeId → { dayIdx, color }
+  // Build lookup: placeId → { stopNum (within day), color }
   const dayPlaces = new Map<string, { num: number; color: string }>();
   plan.columns.filter(c => !c.isPool).forEach((col, idx) => {
     const color = col.color ?? DAY_COLORS[idx % DAY_COLORS.length];
-    col.items.forEach((id, pos) => dayPlaces.set(id, { num: idx + 1, color }));
+    col.items.forEach((id, pos) => dayPlaces.set(id, { num: pos + 1, color }));
   });
 
+  // Init map
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
     const map = L.map(containerRef.current, { center: [48.858, 2.347], zoom: 13 });
@@ -90,8 +95,8 @@ export function PlaceMap({ plan, hoveredId, focusId, onMarkerClick }: Props) {
     Object.values(plan.places).forEach(place => {
       const day = dayPlaces.get(place.id);
       const icon = day
-        ? makeDayIcon(day.num, day.color)
-        : makeIcon(CAT_COLORS[place.cat] ?? "#888");
+        ? makeStopIcon(day.num, day.color)
+        : makeCatIcon(CAT_COLORS[place.cat] ?? "#888");
       const marker = L.marker([place.lat, place.lng], { icon })
         .bindPopup(`<b style="font-family:monospace;font-size:12px;color:#1A1712">${place.name}</b><br><span style="font-size:11px;color:#9A9384">${place.address}</span>`)
         .on("click", () => onMarkerClick(place.id));
@@ -100,7 +105,7 @@ export function PlaceMap({ plan, hoveredId, focusId, onMarkerClick }: Props) {
     });
   }, [plan.places, plan.columns]);
 
-  // Rebuild day polygons
+  // Rebuild day polygons (convex hull)
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -117,13 +122,55 @@ export function PlaceMap({ plan, hoveredId, focusId, onMarkerClick }: Props) {
       const hull = pts.length >= 3 ? convexHull(pts) : pts;
       const poly = L.polygon(hull, {
         color, fillColor: color,
-        fillOpacity: 0.08, weight: 2, opacity: 0.5, dashArray: "5 5",
+        fillOpacity: 0.07, weight: 1.5, opacity: 0.4, dashArray: "5 5",
       }).addTo(map);
       polygonsRef.current.push(poly);
     });
   }, [plan.columns, plan.places]);
 
-  // Fly to focused place when card is clicked
+  // Draw walking routes per day
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    polylinesRef.current.forEach(p => p.remove());
+    polylinesRef.current = [];
+
+    plan.columns.filter(c => !c.isPool).forEach((col, idx) => {
+      const color = col.color ?? DAY_COLORS[idx % DAY_COLORS.length];
+      const coords: [number, number][] = col.items
+        .map(id => plan.places[id])
+        .filter(Boolean)
+        .map(p => [p.lat, p.lng]);
+
+      if (coords.length < 2) return;
+
+      // Draw fallback straight dashed line immediately
+      const fallback = L.polyline(coords, {
+        color, weight: 2.5, opacity: 0.5, dashArray: "6 5",
+      }).addTo(map);
+      polylinesRef.current.push(fallback);
+
+      // Try real OSRM route, replace fallback if it arrives
+      fetchWalkRoute(coords).then(result => {
+        if (!result) return;
+        fallback.remove();
+        const idx2 = polylinesRef.current.indexOf(fallback);
+        if (idx2 !== -1) polylinesRef.current.splice(idx2, 1);
+
+        // OSRM returns [lng, lat], Leaflet wants [lat, lng]
+        const latlngs = result.geojson.coordinates.map(
+          ([lng, lat]) => [lat, lng] as [number, number]
+        );
+        const real = L.polyline(latlngs, {
+          color, weight: 3, opacity: 0.75,
+        }).addTo(map!);
+        polylinesRef.current.push(real);
+      });
+    });
+  }, [plan.columns, plan.places]);
+
+  // Fly to focused place
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !focusId) return;
