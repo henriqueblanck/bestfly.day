@@ -206,8 +206,6 @@ export function ParisPage() {
                 <input id={fileInputId} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f && plan) loadJson(f); e.target.value = ""; }} />
               </label>
               <button className="pp-tbtn" onClick={() => setShowJsonModal(v => !v)}>ver modelo</button>
-              <div className="pp-toolbar-spacer" />
-              <button className="pp-tbtn" onClick={resetPlan} style={{ color: "var(--crimson)", borderColor: "var(--line-2)" }}>limpar tudo</button>
             </>
           ) : (
             <div className="pp-add-form">
