@@ -24,22 +24,24 @@ async function fetchPlaceImages(name: string): Promise<string[]> {
 }
 
 const CAT_COLORS: Record<string, string> = {
-  monument: "#1F8A52",
-  museum:   "#3B6FB5",
-  hood:     "#E0A03C",
-  park:     "#2F6B4F",
-  food:     "#E8743B",
+  monument:    "#1F8A52",
+  museum:      "#3B6FB5",
+  hood:        "#E0A03C",
+  park:        "#2F6B4F",
+  food:        "#E8743B",
+  experience:  "#9B59B6",
 };
 
 const CAT_LABELS: Record<string, string> = {
-  monument: "Monumentos",
-  museum:   "Museus",
-  hood:     "Bairros",
-  park:     "Parques",
-  food:     "Gastronomia",
+  monument:    "Monumentos",
+  museum:      "Museus",
+  hood:        "Bairros",
+  park:        "Parques",
+  food:        "Gastronomia",
+  experience:  "Experiências",
 };
 
-const CAT_ORDER = ["monument", "museum", "hood", "park", "food"];
+const CAT_ORDER = ["monument", "museum", "hood", "park", "food", "experience"];
 
 const DAY_COLORS = ["#C0492F", "#3B6FB5", "#2F6B4F", "#C2851A", "#7A4E8C", "#2F7E7A", "#B5536B", "#4D6A2E"];
 

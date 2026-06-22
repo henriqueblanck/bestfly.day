@@ -8,7 +8,7 @@ import type { ParisPlan, PPlace } from "../api/paris";
 import "../styles/paris.css";
 
 const SEED_PLACES = (seedData as ParisPlan).places;
-const CATEGORIES = ["monument", "museum", "hood", "park", "food"];
+const CATEGORIES = ["monument", "museum", "hood", "park", "food", "experience"];
 
 const JSON_MODEL = JSON.stringify({
   places: {
